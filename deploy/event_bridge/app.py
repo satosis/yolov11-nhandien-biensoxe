@@ -11,6 +11,7 @@ import paho.mqtt.client as mqtt
 import requests
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
+from onvif import ONVIFCamera
 import uvicorn
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -52,11 +53,51 @@ DRIVER_LINK_WINDOW_SECONDS = int(os.getenv("DRIVER_LINK_WINDOW_SECONDS", "60"))
 DEDUPE_SECONDS = int(os.getenv("DEDUPE_SECONDS", "15"))
 MATCH_VEHICLE_REENTRY_SECONDS = int(os.getenv("MATCH_VEHICLE_REENTRY_SECONDS", "86400"))
 
+PTZ_AUTO_RETURN_SECONDS = int(os.getenv("PTZ_AUTO_RETURN_SECONDS", "300"))
+HEARTBEAT_MAX_SILENCE_SECONDS = int(
+    os.getenv("HEARTBEAT_MAX_SILENCE_SECONDS", str(PTZ_AUTO_RETURN_SECONDS))
+)
+
+ONVIF_HOST = os.getenv("ONVIF_HOST", "")
+ONVIF_PORT = int(os.getenv("ONVIF_PORT", "80"))
+ONVIF_USER = os.getenv("ONVIF_USER", "")
+ONVIF_PASS = os.getenv("ONVIF_PASS", "")
+ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
+ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
+ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
+
 ALERT_KEY_NO_ONE_GATE_OPEN = "no_one_gate_open"
+
+STATE_TOPICS = {
+    "people_count": "shed/state/people_count",
+    "vehicle_count": "shed/state/vehicle_count",
+    "gate_closed": "shed/state/gate_closed",
+    "ptz_mode": "shed/state/ptz_mode",
+    "ocr_enabled": "shed/state/ocr_enabled",
+    "last_view_utc": "shed/state/last_view_utc",
+}
+
+COMMAND_TOPICS = {
+    "shed/cmd/gate_open",
+    "shed/cmd/gate_closed",
+    "shed/cmd/ptz_panorama",
+    "shed/cmd/ptz_gate",
+    "shed/cmd/view_heartbeat",
+}
 
 app = FastAPI()
 
-side_streaks = {}
+side_streaks: dict[str, int] = {}
+ptz_state_lock = threading.Lock()
+ptz_state_cache = {
+    "mode": "gate",
+    "ocr_enabled": 1,
+    "last_view_utc": None,
+    "updated_at_utc": None,
+    "updated_by": None,
+}
+
+mqtt_client: mqtt.Client | None = None
 
 
 def normalize_plate(text: str) -> str:
@@ -166,6 +207,18 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS gate_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             gate_closed INTEGER NOT NULL,
+            updated_at_utc TEXT NOT NULL,
+            updated_by TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ptz_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            mode TEXT NOT NULL,
+            ocr_enabled INTEGER NOT NULL,
+            last_view_utc TEXT,
             updated_at_utc TEXT NOT NULL,
             updated_by TEXT
         )
@@ -295,6 +348,7 @@ def init_db() -> None:
 
     ensure_counters_state()
     ensure_gate_state()
+    ensure_ptz_state()
 
 
 def ensure_counters_state() -> None:
@@ -331,6 +385,261 @@ def ensure_gate_state() -> None:
         logger.warning("Gate state init failed: %s", exc)
 
 
+def ensure_ptz_state() -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM ptz_state WHERE id = 1")
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                "INSERT INTO ptz_state (id, mode, ocr_enabled, last_view_utc, updated_at_utc, updated_by) VALUES (1, ?, 1, NULL, ?, ?)",
+                ("gate", utc_now(), "system"),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("PTZ state init failed: %s", exc)
+
+
+def mqtt_publish(topic: str, payload: str, retain: bool = True) -> None:
+    client = mqtt_client
+    if not client:
+        return
+    try:
+        client.publish(topic, payload=payload, qos=0, retain=retain)
+    except Exception as exc:
+        logger.warning("MQTT publish failed for %s: %s", topic, exc)
+
+
+def publish_discovery() -> None:
+    device = {
+        "identifiers": ["shed_controller"],
+        "name": "Shed Controller",
+        "manufacturer": "custom",
+    }
+
+    discovery_payloads = {
+        "homeassistant/sensor/shed_people_count/config": {
+            "name": "Shed People Count",
+            "state_topic": STATE_TOPICS["people_count"],
+            "unique_id": "shed_people_count",
+            "device": device,
+        },
+        "homeassistant/sensor/shed_vehicle_count/config": {
+            "name": "Shed Vehicle Count",
+            "state_topic": STATE_TOPICS["vehicle_count"],
+            "unique_id": "shed_vehicle_count",
+            "device": device,
+        },
+        "homeassistant/binary_sensor/shed_gate_closed/config": {
+            "name": "Shed Gate Closed",
+            "state_topic": STATE_TOPICS["gate_closed"],
+            "payload_on": "1",
+            "payload_off": "0",
+            "unique_id": "shed_gate_closed",
+            "device": device,
+        },
+        "homeassistant/button/shed_gate_open/config": {
+            "name": "Shed Gate Open",
+            "command_topic": "shed/cmd/gate_open",
+            "unique_id": "shed_gate_open",
+            "device": device,
+        },
+        "homeassistant/button/shed_gate_closed/config": {
+            "name": "Shed Gate Closed",
+            "command_topic": "shed/cmd/gate_closed",
+            "unique_id": "shed_gate_closed",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_panorama/config": {
+            "name": "PTZ Panorama",
+            "command_topic": "shed/cmd/ptz_panorama",
+            "unique_id": "shed_ptz_panorama",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_gate/config": {
+            "name": "PTZ Gate",
+            "command_topic": "shed/cmd/ptz_gate",
+            "unique_id": "shed_ptz_gate",
+            "device": device,
+        },
+        "homeassistant/sensor/shed_ptz_mode/config": {
+            "name": "PTZ Mode",
+            "state_topic": STATE_TOPICS["ptz_mode"],
+            "unique_id": "shed_ptz_mode",
+            "device": device,
+        },
+        "homeassistant/binary_sensor/shed_ocr_enabled/config": {
+            "name": "OCR Enabled",
+            "state_topic": STATE_TOPICS["ocr_enabled"],
+            "payload_on": "1",
+            "payload_off": "0",
+            "unique_id": "shed_ocr_enabled",
+            "device": device,
+        },
+    }
+
+    for topic, payload in discovery_payloads.items():
+        mqtt_publish(topic, json.dumps(payload, ensure_ascii=False), retain=True)
+
+
+def publish_state() -> None:
+    people_count, vehicle_count = get_counters()
+    gate_closed, _, _ = get_gate_state()
+    ptz_state = get_ptz_state()
+
+    mqtt_publish(STATE_TOPICS["people_count"], str(people_count))
+    mqtt_publish(STATE_TOPICS["vehicle_count"], str(vehicle_count))
+    mqtt_publish(STATE_TOPICS["gate_closed"], str(gate_closed))
+    mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
+    mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
+    mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
+
+
+def get_ptz_state() -> dict:
+    with ptz_state_lock:
+        cached = ptz_state_cache.copy()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT mode, ocr_enabled, last_view_utc, updated_at_utc, updated_by FROM ptz_state WHERE id = 1"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            state = {
+                "mode": row[0],
+                "ocr_enabled": int(row[1]),
+                "last_view_utc": row[2],
+                "updated_at_utc": row[3],
+                "updated_by": row[4],
+            }
+            with ptz_state_lock:
+                ptz_state_cache.update(state)
+            return state
+    except sqlite3.Error as exc:
+        logger.warning("PTZ state read failed: %s", exc)
+    return cached
+
+
+def set_ptz_state(mode: str, ocr_enabled: int, updated_by: str, last_view_utc: str | None = None) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE ptz_state SET mode = ?, ocr_enabled = ?, last_view_utc = ?, updated_at_utc = ?, updated_by = ? WHERE id = 1",
+            (mode, ocr_enabled, last_view_utc, utc_now(), updated_by),
+        )
+        conn.commit()
+        conn.close()
+        with ptz_state_lock:
+            ptz_state_cache.update(
+                {
+                    "mode": mode,
+                    "ocr_enabled": ocr_enabled,
+                    "last_view_utc": last_view_utc,
+                    "updated_at_utc": utc_now(),
+                    "updated_by": updated_by,
+                }
+            )
+    except sqlite3.Error as exc:
+        logger.warning("PTZ state update failed: %s", exc)
+    publish_state()
+
+
+def update_ptz_last_view(updated_by: str) -> None:
+    state = get_ptz_state()
+    if state["mode"] != "panorama":
+        return
+    last_view = utc_now()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE ptz_state SET last_view_utc = ?, updated_at_utc = ?, updated_by = ? WHERE id = 1",
+            (last_view, utc_now(), updated_by),
+        )
+        conn.commit()
+        conn.close()
+        with ptz_state_lock:
+            ptz_state_cache.update({"last_view_utc": last_view, "updated_at_utc": utc_now(), "updated_by": updated_by})
+    except sqlite3.Error as exc:
+        logger.warning("PTZ last_view update failed: %s", exc)
+    publish_state()
+
+
+def is_ocr_enabled() -> bool:
+    return get_ptz_state().get("ocr_enabled", 1) == 1
+
+
+def ptz_goto_preset(preset_token: str) -> bool:
+    if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
+        logger.warning("ONVIF preset not configured; skipping PTZ move")
+        return False
+    try:
+        camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
+        media = camera.create_media_service()
+        ptz = camera.create_ptz_service()
+        if ONVIF_PROFILE_TOKEN:
+            profile = {"token": ONVIF_PROFILE_TOKEN}
+        else:
+            profiles = media.GetProfiles()
+            if not profiles:
+                logger.warning("No ONVIF profiles found")
+                return False
+            profile = profiles[0]
+        ptz.GotoPreset({"ProfileToken": profile["token"], "PresetToken": preset_token})
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF goto preset failed: %s", exc)
+        return False
+
+
+def ensure_state_publish_loop() -> None:
+    while True:
+        try:
+            publish_state()
+        except Exception as exc:
+            logger.warning("State publish loop error: %s", exc)
+        finally:
+            threading.Event().wait(30)
+
+
+def auto_return_loop() -> None:
+    while True:
+        try:
+            state = get_ptz_state()
+            if state["mode"] == "panorama":
+                last_view = state.get("last_view_utc")
+                if last_view:
+                    try:
+                        last_dt = datetime.fromisoformat(last_view)
+                        idle_seconds = (datetime.utcnow() - last_dt).total_seconds()
+                    except ValueError:
+                        idle_seconds = HEARTBEAT_MAX_SILENCE_SECONDS
+                else:
+                    idle_seconds = HEARTBEAT_MAX_SILENCE_SECONDS
+
+                if idle_seconds >= HEARTBEAT_MAX_SILENCE_SECONDS:
+                    if ptz_goto_preset(ONVIF_PRESET_GATE):
+                        set_ptz_state("gate", 1, "auto", None)
+                        log_counter_event(
+                            "ptz",
+                            "auto",
+                            0,
+                            0,
+                            "ptz",
+                            "auto",
+                            "auto_return_no_viewers",
+                        )
+        except Exception as exc:
+            logger.warning("Auto return loop error: %s", exc)
+        finally:
+            threading.Event().wait(10)
+
+
 def get_counters() -> tuple[int, int]:
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -357,6 +666,7 @@ def update_counters(people_count: int, vehicle_count: int) -> None:
         conn.close()
     except sqlite3.Error as exc:
         logger.warning("Counters update failed: %s", exc)
+    publish_state()
 
 
 def get_gate_state() -> tuple[int, str | None, str | None]:
@@ -385,6 +695,7 @@ def set_gate_state(gate_closed: int, updated_by: str) -> None:
         conn.close()
     except sqlite3.Error as exc:
         logger.warning("Gate state update failed: %s", exc)
+    publish_state()
 
 
 def get_alert_last(alert_key: str) -> str | None:
@@ -415,7 +726,9 @@ def update_alert_last(alert_key: str, timestamp: str) -> None:
         logger.warning("Alert update failed: %s", exc)
 
 
-def log_counter_event(label: str, direction: str, delta: int, new_count: int, track_key: str, source: str, note: str) -> None:
+def log_counter_event(
+    label: str, direction: str, delta: int, new_count: int, track_key: str, source: str, note: str
+) -> None:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -783,6 +1096,8 @@ def insert_event(payload: dict) -> int:
 
 
 def handle_plate_workflow(payload: dict, event_id: int) -> None:
+    if not is_ocr_enabled():
+        return
     plate_raw = extract_plate(payload)
     plate_norm = normalize_plate(plate_raw)
     if not plate_norm:
@@ -862,10 +1177,6 @@ def infer_direction(payload: dict, track_key: str) -> tuple[str | None, str, str
             return "in", "virtual", side
 
     return None, "virtual", side
-
-
-def resolve_person_identity() -> str:
-    return "unknown_person"
 
 
 def resolve_vehicle_identity(plate_norm: str | None, session_id: int | None) -> str:
@@ -968,7 +1279,13 @@ def find_recent_person_session(direction: str, event_time: datetime) -> int | No
     return None
 
 
-def open_vehicle_session(vehicle_key: str | None, plate_norm: str | None, vehicle_type: str, camera: str | None, source: str) -> int | None:
+def open_vehicle_session(
+    vehicle_key: str | None,
+    plate_norm: str | None,
+    vehicle_type: str,
+    camera: str | None,
+    source: str,
+) -> int | None:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -1036,7 +1353,9 @@ def close_vehicle_session(vehicle_key: str | None, plate_norm: str | None, vehic
         return None
 
 
-def update_time_outside(plate_norm: str | None, vehicle_key: str | None, vehicle_type: str, entered_at: str) -> None:
+def update_time_outside(
+    plate_norm: str | None, vehicle_key: str | None, vehicle_type: str, entered_at: str
+) -> None:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -1092,7 +1411,14 @@ def update_time_outside(plate_norm: str | None, vehicle_key: str | None, vehicle
         logger.warning("Update time outside failed: %s", exc)
 
 
-def insert_driver_attribution(direction: str, person_identity: str, vehicle_identity: str, vehicle_session_id: int | None, person_session_id: int | None, evidence: dict) -> None:
+def insert_driver_attribution(
+    direction: str,
+    person_identity: str,
+    vehicle_identity: str,
+    vehicle_session_id: int | None,
+    person_session_id: int | None,
+    evidence: dict,
+) -> None:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -1113,7 +1439,15 @@ def insert_driver_attribution(direction: str, person_identity: str, vehicle_iden
             INSERT INTO driver_attribution (ts_utc, direction, person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence_json)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (utc_now(), direction, person_identity, vehicle_identity, vehicle_session_id, person_session_id, json.dumps(evidence)),
+            (
+                utc_now(),
+                direction,
+                person_identity,
+                vehicle_identity,
+                vehicle_session_id,
+                person_session_id,
+                json.dumps(evidence),
+            ),
         )
         conn.commit()
         conn.close()
@@ -1139,7 +1473,9 @@ def save_snapshot(snapshot_bytes: bytes) -> str | None:
         return None
 
 
-def insert_gate_alert_event(gate_closed: int, people_count: int, note: str, snapshot_path: str | None) -> None:
+def insert_gate_alert_event(
+    gate_closed: int, people_count: int, note: str, snapshot_path: str | None
+) -> None:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -1180,6 +1516,7 @@ def handle_counting(payload: dict) -> None:
         return
 
     people_count, vehicle_count = get_counters()
+    ocr_enabled = is_ocr_enabled()
 
     if direction == "in" and not track["counted_in"]:
         if label == "person":
@@ -1188,19 +1525,37 @@ def handle_counting(payload: dict) -> None:
             open_person_session(track_key, payload.get("camera"), source)
             person_session_id = find_recent_person_session("in", datetime.utcnow())
             person_identity = get_person_identity_for_session(person_session_id)
-            insert_driver_attribution("in", person_identity, "unknown_vehicle", None, person_session_id, {"reason": "person_in_only"})
+            insert_driver_attribution(
+                "in",
+                person_identity,
+                "unknown_vehicle",
+                None,
+                person_session_id,
+                {"reason": "person_in_only"},
+            )
         else:
             vehicle_count += 1
             log_counter_event(label, "in", 1, vehicle_count, track_key, source, "vehicle_in")
-            plate_norm = normalize_plate(extract_plate(payload)) or None
-            vehicle_session_id = open_vehicle_session(track_key, plate_norm, label, payload.get("camera"), source)
+            plate_norm = normalize_plate(extract_plate(payload)) if ocr_enabled else None
+            if plate_norm == "":
+                plate_norm = None
+            vehicle_session_id = open_vehicle_session(
+                track_key, plate_norm, label, payload.get("camera"), source
+            )
             if vehicle_session_id:
                 update_time_outside(plate_norm, track_key, label, utc_now())
                 vehicle_identity = resolve_vehicle_identity(plate_norm, vehicle_session_id)
                 person_session_id = find_recent_person_session("in", datetime.utcnow())
                 person_identity = get_person_identity_for_session(person_session_id)
                 evidence = {"reason": "vehicle_in_link", "vehicle_session_id": vehicle_session_id}
-                insert_driver_attribution("in", person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence)
+                insert_driver_attribution(
+                    "in",
+                    person_identity,
+                    vehicle_identity,
+                    vehicle_session_id,
+                    person_session_id,
+                    evidence,
+                )
         mark_track_counted(track_key, "in")
 
     if direction == "out" and not track["counted_out"]:
@@ -1211,20 +1566,44 @@ def handle_counting(payload: dict) -> None:
             log_counter_event(label, "out", -1, people_count, track_key, source, note)
             person_session_id = close_person_session(track_key)
             person_identity = get_person_identity_for_session(person_session_id)
-            insert_driver_attribution("out", person_identity, "unknown_vehicle", None, person_session_id, {"reason": "person_out_only"})
+            insert_driver_attribution(
+                "out",
+                person_identity,
+                "unknown_vehicle",
+                None,
+                person_session_id,
+                {"reason": "person_out_only"},
+            )
         else:
             vehicle_count = max(0, vehicle_count - 1)
             log_counter_event(label, "out", -1, vehicle_count, track_key, source, "vehicle_out")
             people_count = max(0, people_count - 1)
-            log_counter_event("person", "out", -1, people_count, track_key, source, "driver_exit_assumed_right")
+            log_counter_event(
+                "person",
+                "out",
+                -1,
+                people_count,
+                track_key,
+                source,
+                "driver_exit_assumed_right",
+            )
             create_vehicle_exit_session(payload.get("camera"), track_key)
-            plate_norm = normalize_plate(extract_plate(payload)) or None
+            plate_norm = normalize_plate(extract_plate(payload)) if ocr_enabled else None
+            if plate_norm == "":
+                plate_norm = None
             vehicle_session_id = close_vehicle_session(track_key, plate_norm, label)
             vehicle_identity = resolve_vehicle_identity(plate_norm, vehicle_session_id)
             person_session_id = find_recent_person_session("out", datetime.utcnow())
             person_identity = get_person_identity_for_session(person_session_id)
             evidence = {"reason": "vehicle_out_link", "vehicle_session_id": vehicle_session_id}
-            insert_driver_attribution("out", person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence)
+            insert_driver_attribution(
+                "out",
+                person_identity,
+                vehicle_identity,
+                vehicle_session_id,
+                person_session_id,
+                evidence,
+            )
         mark_track_counted(track_key, "out")
 
     update_counters(people_count, vehicle_count)
@@ -1282,7 +1661,35 @@ def alert_loop() -> None:
             threading.Event().wait(CHECK_INTERVAL_SECONDS)
 
 
+def handle_mqtt_command(topic: str, payload: str) -> None:
+    if topic == "shed/cmd/gate_open":
+        set_gate_state(0, "ha")
+        return
+    if topic == "shed/cmd/gate_closed":
+        set_gate_state(1, "ha")
+        return
+    if topic == "shed/cmd/ptz_panorama":
+        if ptz_goto_preset(ONVIF_PRESET_PANORAMA):
+            set_ptz_state("panorama", 0, "ha", utc_now())
+        return
+    if topic == "shed/cmd/ptz_gate":
+        if ptz_goto_preset(ONVIF_PRESET_GATE):
+            set_ptz_state("gate", 1, "ha", None)
+        return
+    if topic == "shed/cmd/view_heartbeat":
+        update_ptz_last_view("ha")
+        return
+
+
 def on_mqtt_message(client, userdata, msg):
+    if msg.topic in COMMAND_TOPICS:
+        payload = msg.payload.decode("utf-8", errors="ignore")
+        handle_mqtt_command(msg.topic, payload)
+        return
+
+    if msg.topic != MQTT_TOPIC:
+        return
+
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
     except json.JSONDecodeError:
@@ -1296,7 +1703,9 @@ def on_mqtt_message(client, userdata, msg):
 
 
 def start_mqtt_loop() -> None:
+    global mqtt_client
     client = mqtt.Client()
+    mqtt_client = client
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
@@ -1306,6 +1715,10 @@ def start_mqtt_loop() -> None:
         if rc == 0:
             logger.info("MQTT connected")
             client.subscribe(MQTT_TOPIC)
+            for topic in COMMAND_TOPICS:
+                client.subscribe(topic)
+            publish_discovery()
+            publish_state()
         else:
             logger.warning("MQTT connect failed: %s", rc)
 
@@ -1439,6 +1852,18 @@ async def telegram_webhook(
 async def health():
     people_count, vehicle_count = get_counters()
     gate_closed, _, _ = get_gate_state()
+    ptz_state = get_ptz_state()
+    seconds_since_last_view = None
+    if ptz_state["mode"] == "panorama":
+        last_view = ptz_state.get("last_view_utc")
+        if last_view:
+            try:
+                seconds_since_last_view = int(
+                    (datetime.utcnow() - datetime.fromisoformat(last_view)).total_seconds()
+                )
+            except ValueError:
+                seconds_since_last_view = None
+
     return {
         "status": "ok",
         "people_count": people_count,
@@ -1446,6 +1871,9 @@ async def health():
         "gate_closed": gate_closed,
         "last_alert_time": get_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN),
         "active_exit_sessions": active_session_count(),
+        "ptz_mode": ptz_state["mode"],
+        "ocr_enabled": ptz_state["ocr_enabled"],
+        "seconds_since_last_view": seconds_since_last_view,
     }
 
 
@@ -1455,6 +1883,10 @@ def main() -> None:
     mqtt_thread.start()
     alert_thread = threading.Thread(target=alert_loop, daemon=True)
     alert_thread.start()
+    state_thread = threading.Thread(target=ensure_state_publish_loop, daemon=True)
+    state_thread.start()
+    auto_return_thread = threading.Thread(target=auto_return_loop, daemon=True)
+    auto_return_thread.start()
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 

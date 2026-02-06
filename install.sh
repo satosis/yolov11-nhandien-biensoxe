@@ -70,6 +70,7 @@ ensure_dirs() {
   mkdir -p "${DEPLOY_DIR}/frigate" \
     "${DEPLOY_DIR}/mosquitto" \
     "${DEPLOY_DIR}/event_bridge" \
+    "${DEPLOY_DIR}/homeassistant" \
     "${DATA_DIR}/frigate" \
     "${DATA_DIR}/homeassistant" \
     "${DATA_DIR}/mosquitto" \
@@ -82,6 +83,17 @@ ensure_env() {
     cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
     log "Created .env from .env.example."
   fi
+}
+
+seed_homeassistant_config() {
+  if [[ ! -d "${DEPLOY_DIR}/homeassistant" ]]; then
+    return
+  fi
+  if [[ -n "$(find "${DATA_DIR}/homeassistant" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    return
+  fi
+  cp -a "${DEPLOY_DIR}/homeassistant/." "${DATA_DIR}/homeassistant/"
+  log "Seeded Home Assistant config into data/homeassistant."
 }
 
 install_tailscale() {
@@ -154,6 +166,7 @@ main() {
 
   ensure_dirs
   ensure_env
+  seed_homeassistant_config
 
   install_tailscale
   ensure_tailscale_auth

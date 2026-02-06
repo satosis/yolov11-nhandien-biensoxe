@@ -118,7 +118,15 @@ case "${1:-}" in
       echo "Usage: ./cmd chart-month YYYY-MM"
       exit 1
     fi
-    python3 "${BASE_DIR}/deploy/reporting/monthly_chart.py" --db "$DB_PATH" --month "$month" --chart
+    chart_output="$(python3 "${BASE_DIR}/deploy/reporting/monthly_chart.py" --db "$DB_PATH" --month "$month" --chart)"
+    if [[ -n "$chart_output" && -f "$chart_output" ]]; then
+      report_dir="${BASE_DIR}/data/homeassistant/www/reports"
+      mkdir -p "$report_dir"
+      cp "$chart_output" "${report_dir}/$(basename "$chart_output")"
+      echo "$chart_output"
+    else
+      echo "$chart_output"
+    fi
     ;;
   *)
     usage

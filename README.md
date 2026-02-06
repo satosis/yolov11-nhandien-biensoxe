@@ -59,6 +59,28 @@ Open:
 
 Install the Home Assistant iOS app, add the Frigate integration via UI, then add camera + events cards.
 
+Home Assistant entities (MQTT discovery):
+- `sensor.shed_people_count`, `sensor.shed_vehicle_count`
+- `binary_sensor.shed_gate_closed`
+- `button.shed_gate_open`, `button.shed_gate_closed`
+- `button.shed_ptz_panorama`, `button.shed_ptz_gate`
+- `sensor.shed_ptz_mode`, `binary_sensor.shed_ocr_enabled`
+
+Monthly report image:
+- `./cmd chart-month YYYY-MM` copies the PNG to `./data/homeassistant/www/reports/`
+- Lovelace uses `/local/reports/trips_YYYY-MM.png`
+
+## PTZ presets (IMOU 360 PTZ)
+Set these in `.env` to enable PTZ control from Home Assistant:
+- `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`
+- `ONVIF_PRESET_GATE` (gate view preset)
+- `ONVIF_PRESET_PANORAMA` (panorama view preset)
+- Optional: `ONVIF_PROFILE_TOKEN` (if your camera exposes multiple profiles)
+
+Behavior:
+- Panorama mode disables OCR in `event_bridge`.
+- If no viewer heartbeat is received for `PTZ_AUTO_RETURN_SECONDS`, the camera auto-returns to Gate view and OCR re-enables.
+
 ## Ops commands
 ```
 ./cmd stats

@@ -48,6 +48,10 @@ ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "900"))
 FRIGATE_BASE_URL = os.getenv("FRIGATE_BASE_URL", "http://frigate:5000")
 FRIGATE_CAMERA = os.getenv("FRIGATE_CAMERA", "cam1")
 
+DRIVER_LINK_WINDOW_SECONDS = int(os.getenv("DRIVER_LINK_WINDOW_SECONDS", "60"))
+DEDUPE_SECONDS = int(os.getenv("DEDUPE_SECONDS", "15"))
+MATCH_VEHICLE_REENTRY_SECONDS = int(os.getenv("MATCH_VEHICLE_REENTRY_SECONDS", "86400"))
+
 ALERT_KEY_NO_ONE_GATE_OPEN = "no_one_gate_open"
 
 app = FastAPI()
@@ -175,6 +179,82 @@ def init_db() -> None:
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS person_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_key TEXT,
+            camera TEXT,
+            entered_at_utc TEXT NOT NULL,
+            exited_at_utc TEXT,
+            source TEXT,
+            confidence REAL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vehicle_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_key TEXT,
+            plate_norm TEXT,
+            vehicle_type TEXT,
+            camera TEXT,
+            entered_at_utc TEXT NOT NULL,
+            exited_at_utc TEXT,
+            time_outside_seconds INTEGER,
+            source TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS driver_attribution (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            person_identity TEXT,
+            vehicle_identity TEXT,
+            vehicle_session_id INTEGER,
+            person_session_id INTEGER,
+            evidence_json TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gate_alert_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            gate_closed INTEGER NOT NULL,
+            people_count INTEGER NOT NULL,
+            note TEXT,
+            snapshot_path TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_aggregates (
+            day_utc TEXT NOT NULL,
+            person_identity TEXT NOT NULL,
+            vehicle_identity TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            trips_count INTEGER NOT NULL,
+            PRIMARY KEY(day_utc, person_identity, vehicle_identity, direction)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS people_whitelist (
+            person_identity TEXT PRIMARY KEY,
+            note TEXT,
+            added_at_utc TEXT,
+            added_by TEXT
+        )
+        """
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_ts_utc ON events (ts_utc)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_label ON events (label)")
     cursor.execute(
@@ -191,6 +271,24 @@ def init_db() -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_vehicle_exit_sessions_active ON vehicle_exit_sessions (active)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_person_sessions_entered ON person_sessions (entered_at_utc)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vehicle_sessions_entered ON vehicle_sessions (entered_at_utc)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_driver_attribution_ts_utc ON driver_attribution (ts_utc)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_driver_attribution_person ON driver_attribution (person_identity)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_driver_attribution_vehicle ON driver_attribution (vehicle_identity)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gate_alert_events_ts_utc ON gate_alert_events (ts_utc)"
     )
     conn.commit()
     conn.close()
@@ -766,6 +864,298 @@ def infer_direction(payload: dict, track_key: str) -> tuple[str | None, str, str
     return None, "virtual", side
 
 
+def resolve_person_identity() -> str:
+    return "unknown_person"
+
+
+def resolve_vehicle_identity(plate_norm: str | None, session_id: int | None) -> str:
+    if plate_norm:
+        return plate_norm
+    if session_id:
+        return f"unknown_vehicle_{session_id}"
+    return "unknown_vehicle"
+
+
+def open_person_session(person_key: str | None, camera: str | None, source: str) -> int | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO person_sessions (person_key, camera, entered_at_utc, source)
+            VALUES (?, ?, ?, ?)
+            """,
+            (person_key, camera, utc_now(), source),
+        )
+        session_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return session_id
+    except sqlite3.Error as exc:
+        logger.warning("Open person session failed: %s", exc)
+        return None
+
+
+def close_person_session(person_key: str | None) -> int | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if person_key:
+            cursor.execute(
+                """
+                SELECT id FROM person_sessions
+                WHERE person_key = ? AND exited_at_utc IS NULL
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """,
+                (person_key,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id FROM person_sessions
+                WHERE exited_at_utc IS NULL
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """
+            )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+        session_id = row[0]
+        cursor.execute(
+            "UPDATE person_sessions SET exited_at_utc = ? WHERE id = ?",
+            (utc_now(), session_id),
+        )
+        conn.commit()
+        conn.close()
+        return session_id
+    except sqlite3.Error as exc:
+        logger.warning("Close person session failed: %s", exc)
+        return None
+
+
+def find_recent_person_session(direction: str, event_time: datetime) -> int | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if direction == "out":
+            cursor.execute(
+                """
+                SELECT id, exited_at_utc FROM person_sessions
+                WHERE exited_at_utc IS NOT NULL
+                ORDER BY exited_at_utc DESC LIMIT 1
+                """
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, entered_at_utc FROM person_sessions
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """
+            )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        ts = row[1]
+        if not ts:
+            return None
+        ts_dt = datetime.fromisoformat(ts)
+        if abs((event_time - ts_dt).total_seconds()) <= DRIVER_LINK_WINDOW_SECONDS:
+            return row[0]
+    except sqlite3.Error as exc:
+        logger.warning("Find recent person session failed: %s", exc)
+    return None
+
+
+def open_vehicle_session(vehicle_key: str | None, plate_norm: str | None, vehicle_type: str, camera: str | None, source: str) -> int | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vehicle_sessions (vehicle_key, plate_norm, vehicle_type, camera, entered_at_utc, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (vehicle_key, plate_norm, vehicle_type, camera, utc_now(), source),
+        )
+        session_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return session_id
+    except sqlite3.Error as exc:
+        logger.warning("Open vehicle session failed: %s", exc)
+        return None
+
+
+def close_vehicle_session(vehicle_key: str | None, plate_norm: str | None, vehicle_type: str) -> int | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if plate_norm:
+            cursor.execute(
+                """
+                SELECT id FROM vehicle_sessions
+                WHERE plate_norm = ? AND exited_at_utc IS NULL
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """,
+                (plate_norm,),
+            )
+        elif vehicle_key:
+            cursor.execute(
+                """
+                SELECT id FROM vehicle_sessions
+                WHERE vehicle_key = ? AND exited_at_utc IS NULL
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """,
+                (vehicle_key,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id FROM vehicle_sessions
+                WHERE vehicle_type = ? AND exited_at_utc IS NULL
+                ORDER BY entered_at_utc DESC LIMIT 1
+                """,
+                (vehicle_type,),
+            )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+        session_id = row[0]
+        cursor.execute(
+            "UPDATE vehicle_sessions SET exited_at_utc = ? WHERE id = ?",
+            (utc_now(), session_id),
+        )
+        conn.commit()
+        conn.close()
+        return session_id
+    except sqlite3.Error as exc:
+        logger.warning("Close vehicle session failed: %s", exc)
+        return None
+
+
+def update_time_outside(plate_norm: str | None, vehicle_key: str | None, vehicle_type: str, entered_at: str) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cutoff = datetime.utcnow() - timedelta(seconds=MATCH_VEHICLE_REENTRY_SECONDS)
+        if plate_norm:
+            cursor.execute(
+                """
+                SELECT id, exited_at_utc FROM vehicle_sessions
+                WHERE plate_norm = ? AND exited_at_utc IS NOT NULL AND time_outside_seconds IS NULL
+                ORDER BY exited_at_utc DESC LIMIT 1
+                """,
+                (plate_norm,),
+            )
+        elif vehicle_key:
+            cursor.execute(
+                """
+                SELECT id, exited_at_utc FROM vehicle_sessions
+                WHERE vehicle_key = ? AND exited_at_utc IS NOT NULL AND time_outside_seconds IS NULL
+                ORDER BY exited_at_utc DESC LIMIT 1
+                """,
+                (vehicle_key,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, exited_at_utc FROM vehicle_sessions
+                WHERE vehicle_type = ? AND exited_at_utc IS NOT NULL AND time_outside_seconds IS NULL
+                ORDER BY exited_at_utc DESC LIMIT 1
+                """,
+                (vehicle_type,),
+            )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return
+        session_id, exited_at = row
+        exited_dt = datetime.fromisoformat(exited_at)
+        entered_dt = datetime.fromisoformat(entered_at)
+        if exited_dt < cutoff:
+            conn.close()
+            return
+        delta = int((entered_dt - exited_dt).total_seconds())
+        if delta < 0:
+            conn.close()
+            return
+        cursor.execute(
+            "UPDATE vehicle_sessions SET time_outside_seconds = ? WHERE id = ?",
+            (delta, session_id),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Update time outside failed: %s", exc)
+
+
+def insert_driver_attribution(direction: str, person_identity: str, vehicle_identity: str, vehicle_session_id: int | None, person_session_id: int | None, evidence: dict) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cutoff = datetime.utcnow() - timedelta(seconds=DEDUPE_SECONDS)
+        cursor.execute(
+            """
+            SELECT id FROM driver_attribution
+            WHERE person_identity = ? AND vehicle_identity = ? AND direction = ? AND ts_utc >= ?
+            ORDER BY ts_utc DESC LIMIT 1
+            """,
+            (person_identity, vehicle_identity, direction, cutoff.isoformat()),
+        )
+        if cursor.fetchone():
+            conn.close()
+            return
+        cursor.execute(
+            """
+            INSERT INTO driver_attribution (ts_utc, direction, person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (utc_now(), direction, person_identity, vehicle_identity, vehicle_session_id, person_session_id, json.dumps(evidence)),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Insert driver attribution failed: %s", exc)
+
+
+def get_person_identity_for_session(session_id: int | None) -> str:
+    return "unknown_person"
+
+
+def save_snapshot(snapshot_bytes: bytes) -> str | None:
+    try:
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        dir_path = os.path.join(os.path.dirname(DB_PATH), "snapshots")
+        os.makedirs(dir_path, exist_ok=True)
+        path = os.path.join(dir_path, f"gate_alert_{ts}.jpg")
+        with open(path, "wb") as f:
+            f.write(snapshot_bytes)
+        return path
+    except OSError as exc:
+        logger.warning("Snapshot save failed: %s", exc)
+        return None
+
+
+def insert_gate_alert_event(gate_closed: int, people_count: int, note: str, snapshot_path: str | None) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO gate_alert_events (ts_utc, gate_closed, people_count, note, snapshot_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (utc_now(), gate_closed, people_count, note, snapshot_path),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Gate alert event insert failed: %s", exc)
+
+
 def handle_counting(payload: dict) -> None:
     label = payload.get("label")
     if label not in {"person", "car", "truck"}:
@@ -795,9 +1185,22 @@ def handle_counting(payload: dict) -> None:
         if label == "person":
             people_count += 1
             log_counter_event(label, "in", 1, people_count, track_key, source, "person_in")
+            open_person_session(track_key, payload.get("camera"), source)
+            person_session_id = find_recent_person_session("in", datetime.utcnow())
+            person_identity = get_person_identity_for_session(person_session_id)
+            insert_driver_attribution("in", person_identity, "unknown_vehicle", None, person_session_id, {"reason": "person_in_only"})
         else:
             vehicle_count += 1
             log_counter_event(label, "in", 1, vehicle_count, track_key, source, "vehicle_in")
+            plate_norm = normalize_plate(extract_plate(payload)) or None
+            vehicle_session_id = open_vehicle_session(track_key, plate_norm, label, payload.get("camera"), source)
+            if vehicle_session_id:
+                update_time_outside(plate_norm, track_key, label, utc_now())
+                vehicle_identity = resolve_vehicle_identity(plate_norm, vehicle_session_id)
+                person_session_id = find_recent_person_session("in", datetime.utcnow())
+                person_identity = get_person_identity_for_session(person_session_id)
+                evidence = {"reason": "vehicle_in_link", "vehicle_session_id": vehicle_session_id}
+                insert_driver_attribution("in", person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence)
         mark_track_counted(track_key, "in")
 
     if direction == "out" and not track["counted_out"]:
@@ -806,12 +1209,22 @@ def handle_counting(payload: dict) -> None:
             applied_left = apply_left_exit_decrement()
             note = "left_side_exit_after_vehicle" if applied_left else "person_out"
             log_counter_event(label, "out", -1, people_count, track_key, source, note)
+            person_session_id = close_person_session(track_key)
+            person_identity = get_person_identity_for_session(person_session_id)
+            insert_driver_attribution("out", person_identity, "unknown_vehicle", None, person_session_id, {"reason": "person_out_only"})
         else:
             vehicle_count = max(0, vehicle_count - 1)
             log_counter_event(label, "out", -1, vehicle_count, track_key, source, "vehicle_out")
             people_count = max(0, people_count - 1)
             log_counter_event("person", "out", -1, people_count, track_key, source, "driver_exit_assumed_right")
             create_vehicle_exit_session(payload.get("camera"), track_key)
+            plate_norm = normalize_plate(extract_plate(payload)) or None
+            vehicle_session_id = close_vehicle_session(track_key, plate_norm, label)
+            vehicle_identity = resolve_vehicle_identity(plate_norm, vehicle_session_id)
+            person_session_id = find_recent_person_session("out", datetime.utcnow())
+            person_identity = get_person_identity_for_session(person_session_id)
+            evidence = {"reason": "vehicle_out_link", "vehicle_session_id": vehicle_session_id}
+            insert_driver_attribution("out", person_identity, vehicle_identity, vehicle_session_id, person_session_id, evidence)
         mark_track_counted(track_key, "out")
 
     update_counters(people_count, vehicle_count)
@@ -855,10 +1268,13 @@ def alert_loop() -> None:
                     )
                     snapshot = fetch_snapshot()
                     sent = False
+                    snapshot_path = None
                     if snapshot:
+                        snapshot_path = save_snapshot(snapshot)
                         sent = send_telegram_photo(CHAT_ID_IMPORTANT, caption, snapshot)
                     if not sent:
                         send_telegram_message(CHAT_ID_IMPORTANT, caption)
+                    insert_gate_alert_event(gate_closed, people_count, "no_one_gate_open", snapshot_path)
                     update_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN, now.isoformat())
         except Exception as exc:
             logger.warning("Alert loop error: %s", exc)
@@ -958,6 +1374,42 @@ async def telegram_webhook(
                 chat_id,
                 f"Trạng thái cửa: {status}\nCập nhật: {updated_at} bởi {updated_by}\npeople_count={people_count}",
             )
+        return {"ok": True}
+
+    if cmd == "/person_add":
+        if not plate_raw:
+            send_telegram_message(chat_id, "Thiếu tên. Ví dụ: /person_add nhanvien_A")
+            return {"ok": True}
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO people_whitelist (person_identity, note, added_at_utc, added_by) VALUES (?, ?, ?, ?) ON CONFLICT(person_identity) DO UPDATE SET note=excluded.note, added_at_utc=excluded.added_at_utc, added_by=excluded.added_by",
+                (plate_raw, "", utc_now(), user_label),
+            )
+            conn.commit()
+            conn.close()
+            send_telegram_message(chat_id, f"✅ Đã thêm person_identity: {plate_raw}")
+        except sqlite3.Error as exc:
+            logger.warning("Person add failed: %s", exc)
+            send_telegram_message(chat_id, "⚠️ Không thể thêm person_identity.")
+        return {"ok": True}
+
+    if cmd == "/person_list":
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT person_identity FROM people_whitelist ORDER BY person_identity ASC")
+            rows = cursor.fetchall()
+            conn.close()
+            if rows:
+                names = "\n".join([r[0] for r in rows])
+                send_telegram_message(chat_id, f"Danh sách person_identity:\n{names}")
+            else:
+                send_telegram_message(chat_id, "Chưa có person_identity.")
+        except sqlite3.Error as exc:
+            logger.warning("Person list failed: %s", exc)
+            send_telegram_message(chat_id, "⚠️ Không thể lấy danh sách.")
         return {"ok": True}
 
     if cmd in {"/mine", "/staff", "/reject"} and not plate_norm:

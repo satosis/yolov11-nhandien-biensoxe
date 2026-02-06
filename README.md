@@ -38,6 +38,21 @@ Use in group chat:
 
 Alert rule: when `people_count == 0` and gate is open, an IMPORTANT alert is sent with a snapshot (cooldown via `ALERT_COOLDOWN_SECONDS`).
 
+## Driver attribution (heuristic)
+- When a vehicle IN/OUT is detected, the system links it to the most recent person IN/OUT within `DRIVER_LINK_WINDOW_SECONDS`.
+- If no person event is nearby, it records `unknown_person`.
+- Duplicate attributions for the same person/vehicle/direction within `DEDUPE_SECONDS` are collapsed.
+
+## Monthly reports
+- Text report:
+  ```bash
+  ./cmd report-month YYYY-MM
+  ```
+- Chart (PNG under `./data/event_bridge/reports/`):
+  ```bash
+  ./cmd chart-month YYYY-MM
+  ```
+
 ## Home Assistant
 Open:
 - http://<pi-ip>:8123
@@ -56,6 +71,8 @@ Install the Home Assistant iOS app, add the Frigate integration via UI, then add
 ./cmd counter_events
 ./cmd gate
 ./cmd alerts
+./cmd report-month YYYY-MM
+./cmd chart-month YYYY-MM
 ```
 
 ## Troubleshooting

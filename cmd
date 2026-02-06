@@ -22,6 +22,8 @@ Commands:
   counter_events    Show last 50 counter events
   gate              Show gate_state + people_count
   alerts            Show last_sent for no_one_gate_open
+  report-month YYYY-MM
+  chart-month YYYY-MM
 USAGE
 }
 
@@ -99,6 +101,24 @@ case "${1:-}" in
     ensure_db
     sqlite3 -header -column "$DB_PATH" \
       "select alert_key, last_sent_utc from alerts where alert_key = 'no_one_gate_open';"
+    ;;
+  report-month)
+    ensure_db
+    month="${2:-}"
+    if [[ -z "$month" ]]; then
+      echo "Usage: ./cmd report-month YYYY-MM"
+      exit 1
+    fi
+    python3 "${BASE_DIR}/deploy/reporting/monthly_chart.py" --db "$DB_PATH" --month "$month" --report
+    ;;
+  chart-month)
+    ensure_db
+    month="${2:-}"
+    if [[ -z "$month" ]]; then
+      echo "Usage: ./cmd chart-month YYYY-MM"
+      exit 1
+    fi
+    python3 "${BASE_DIR}/deploy/reporting/monthly_chart.py" --db "$DB_PATH" --month "$month" --chart
     ;;
   *)
     usage

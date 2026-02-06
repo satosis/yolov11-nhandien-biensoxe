@@ -2,55 +2,379 @@ from ultralytics import YOLO
 import cv2
 import easyocr
 import logging
+import os
+import time
+import requests
+import sqlite3
+import json
+import threading
+import numpy as np
+from datetime import datetime
+from dotenv import load_dotenv
+
+# Thử import face_recognition (cần cài dlib)
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
+    print("⚠️ face_recognition chưa cài đặt. Bỏ qua nhận diện khuôn mặt.")
+
+# Load môi trường
+load_dotenv()
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
-# Load EasyOCR
-ocrReader = easyocr.Reader(['en','vi'], gpu=False)
+# --- CẤU HÌNH HỆ THỐNG ---
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_IMPORTANT = os.getenv("CHAT_ID_IMPORTANT")
+CHAT_REGULAR = os.getenv("CHAT_ID_REGULAR")
+DB_PATH = os.getenv("DATABASE_PATH", "/db/door_events.db")
+USE_N8N = os.getenv("USE_N8N", "false").lower() == "true"
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-# Load model YOLO
-license_plate_recognition = YOLO("./models/license_plate_recognition.pt")
+PLATE_MODEL_PATH = "./models/Speed_limit.pt"
+GENERAL_MODEL_PATH = "yolov8n.pt"
+DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
+LINE_Y = 300
+USE_WEBCAM = True
+SIGNAL_LOSS_TIMEOUT = 30
 
-# Dùng webcam (0 là webcam mặc định)
-cap = cv2.VideoCapture(0)
+# --- CẤU HÌNH PHÁT HIỆN CỬA (Brightness-based fallback) ---
+# ROI: (x1, y1, x2, y2) - Vùng cửa cuốn trong frame
+# Bạn cần điều chỉnh theo vị trí camera thực tế
+DOOR_ROI = (100, 50, 540, 400)  # Điều chỉnh theo frame của bạn
+BRIGHTNESS_THRESHOLD = 80  # Ngưỡng sáng: > threshold = cửa mở
+USE_AI_DOOR_DETECTION = os.path.exists(DOOR_MODEL_PATH)
 
-ret = True
-print("Chương trình đang chạy, bấm P để in biển số hoặc Space để kết thúc chương trình !")
-current_plates = []  # Biến lưu biển số nhận diện được trong frame hiện tại
-while ret:
-    ret, frame = cap.read()
-    if not ret:
-        break
+# --- LOAD AUTHORIZED LIST ---
+CONFIG_PATH = "./config/authorized.json"
+FACES_DIR = "./config/faces"
+authorized_plates = []
+authorized_face_encodings = []
+authorized_face_names = []
 
-    current_plates = []  # Xóa danh sách cũ mỗi khung hình
+if os.path.exists(CONFIG_PATH):
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        config = json.load(f)
+        authorized_plates = [p.upper().replace(" ", "") for p in config.get("plates", [])]
+        print(f"✅ Loaded {len(authorized_plates)} authorized plates: {authorized_plates}")
 
-    license_plates = license_plate_recognition.track(frame, persist=True)
+if FACE_RECOGNITION_AVAILABLE and os.path.exists(FACES_DIR):
+    for filename in os.listdir(FACES_DIR):
+        if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+            filepath = os.path.join(FACES_DIR, filename)
+            img = face_recognition.load_image_file(filepath)
+            encodings = face_recognition.face_encodings(img)
+            if encodings:
+                authorized_face_encodings.append(encodings[0])
+                name = os.path.splitext(filename)[0].replace("_", " ")
+                authorized_face_names.append(name)
+    print(f"✅ Loaded {len(authorized_face_names)} authorized faces: {authorized_face_names}")
 
-    for plates in license_plates:
-        for bbox in plates.boxes:
-            x1, y1, x2, y2 = map(int, bbox.xyxy[0])
-            plate_img = frame[y1:y2, x1:x2]
+# --- DATABASE MANAGER ---
+class DatabaseManager:
+    def __init__(self, path):
+        self.path = path
+        db_dir = os.path.dirname(self.path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+        self.init_db()
 
-            text = ocrReader.readtext(plate_img, detail=0)
-            text_str = " ".join(text).strip()
-            current_plates.append(text_str)
+    def init_db(self):
+        conn = sqlite3.connect(self.path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME, event_type TEXT, description TEXT,
+                truck_count INTEGER, person_count INTEGER
+            )
+        ''')
+        conn.commit()
+        conn.close()
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
-            cv2.putText(frame, text_str, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.9, (255, 255, 255), 2)
+    def log_event(self, event_type, description, trucks, people):
+        conn = sqlite3.connect(self.path)
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO events (timestamp, event_type, description, truck_count, person_count) VALUES (?, ?, ?, ?, ?)',
+                       (datetime.now(), event_type, description, trucks, people))
+        conn.commit()
+        conn.close()
 
-    cv2.imshow("License Plates Recognition", frame)
+    def get_stats(self):
+        conn = sqlite3.connect(self.path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*), event_type FROM events GROUP BY event_type')
+        stats = cursor.fetchall()
+        conn.close()
+        return stats
 
-    key = cv2.waitKey(1) & 0xFF
+db = DatabaseManager(DB_PATH)
 
-    if key == ord(" "):  # Nhấn Space để thoát
-        break
-    elif key == ord("p"):  # Nhấn phím P để in biển số ra Terminal
-        print("\nBiển số xe nhận diện được trong khung hình hiện tại:")
-        if current_plates:
-            for i, plate in enumerate(current_plates, 1):
-                print(f"{i}. {plate}")
+# --- 2. HÀM THÔNG BÁO ---
+def notify_telegram(message, important=False):
+    if USE_N8N and N8N_WEBHOOK_URL:
+        try:
+            requests.post(N8N_WEBHOOK_URL, json={"message": message, "important": important})
+        except Exception as e:
+            print(f"Lỗi gửi n8n: {e}")
+
+    chat_id = CHAT_IMPORTANT if important else CHAT_REGULAR
+    prefix = "🚨 [QUAN TRỌNG] " if important else "ℹ️ [THÔNG BÁO] "
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": chat_id, "text": prefix + message})
+    except Exception as e:
+        print(f"Lỗi gửi Telegram: {e}")
+
+# --- FACE/PLATE MATCHING ---
+def check_face(frame):
+    """Nhận diện khuôn mặt và kiểm tra trong danh sách ủy quyền."""
+    if not FACE_RECOGNITION_AVAILABLE or not authorized_face_encodings:
+        return None, None  # Bỏ qua nếu không có thư viện hoặc danh sách trống
+    
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    face_locations = face_recognition.face_locations(rgb_frame)
+    face_encs = face_recognition.face_encodings(rgb_frame, face_locations)
+    
+    for face_enc, loc in zip(face_encs, face_locations):
+        matches = face_recognition.compare_faces(authorized_face_encodings, face_enc, tolerance=0.6)
+        if True in matches:
+            name = authorized_face_names[matches.index(True)]
+            return name, loc  # Nhân viên hợp lệ
         else:
-            print("Không nhận diện được biển số nào.")
+            return "STRANGER", loc  # Người lạ
+    return None, None
+
+def check_plate(plate_text):
+    """Kiểm tra biển số xe có trong danh sách ủy quyền không."""
+    normalized = plate_text.upper().replace(" ", "").replace("-", "")
+    for auth_plate in authorized_plates:
+        if auth_plate.replace("-", "") in normalized or normalized in auth_plate.replace("-", ""):
+            return True, auth_plate
+    return False, None
+
+# --- DOOR STATE DETECTION ---
+door_model = None
+if USE_AI_DOOR_DETECTION:
+    try:
+        door_model = YOLO(DOOR_MODEL_PATH)
+        print(f"✅ Loaded door detection model: {DOOR_MODEL_PATH}")
+    except Exception as e:
+        print(f"⚠️ Không thể load door model: {e}. Dùng phương pháp độ sáng.")
+
+def check_door_state(frame):
+    """
+    Kiểm tra trạng thái cửa cuốn.
+    Returns: 'open', 'closed', hoặc 'unknown'
+    """
+    # Phương pháp 1: AI Model (nếu có)
+    if door_model is not None:
+        results = door_model(frame, verbose=False)
+        for r in results:
+            for box in r.boxes:
+                cls_id = int(box.cls[0])
+                cls_name = door_model.names[cls_id]
+                if 'open' in cls_name.lower():
+                    return 'open'
+                elif 'close' in cls_name.lower():
+                    return 'closed'
+    
+    # Phương pháp 2: Brightness-based (fallback)
+    x1, y1, x2, y2 = DOOR_ROI
+    h, w = frame.shape[:2]
+    # Đảm bảo ROI nằm trong frame
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    
+    if x2 > x1 and y2 > y1:
+        roi = frame[y1:y2, x1:x2]
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        brightness = np.mean(gray)
+        
+        if brightness > BRIGHTNESS_THRESHOLD:
+            return 'open'  # Sáng = thấy ánh sáng bên ngoài = cửa mở
+        else:
+            return 'closed'  # Tối = cửa đóng
+    
+    return 'unknown'
+
+# --- TELEGRAM BOT HANDLER ---
+truck_count = 0
+person_count = 0
+
+def telegram_bot_handler():
+    last_update_id = 0
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={last_update_id + 1}&timeout=10"
+            r = requests.get(url, timeout=15).json()
+            if r.get("ok"):
+                for update in r["result"]:
+                    last_update_id = update["update_id"]
+                    msg = update.get("message", {})
+                    text = msg.get("text", "")
+                    chat_id = msg.get("chat", {}).get("id")
+                    
+                    if text == "/stats":
+                        rows = db.get_stats()
+                        stat_text = "📊 Thống kê hôm nay:\n"
+                        for row in rows:
+                            stat_text += f"- {row[1]}: {row[0]} lần\n"
+                        stat_text += f"\nHiện tại: {truck_count} xe, {person_count} người."
+                        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                      json={"chat_id": chat_id, "text": stat_text})
+        except: 
+            pass
+        time.sleep(2)
+
+threading.Thread(target=telegram_bot_handler, daemon=True).start()
+
+# --- KHỞI TẠO MÔ HÌNH ---
+general_model = YOLO(GENERAL_MODEL_PATH)
+plate_model = YOLO(PLATE_MODEL_PATH)
+ocrReader = easyocr.Reader(['en', 'vi'], gpu=False)
+
+# --- BIẾN TRẠNG THÁI ---
+door_open = True
+last_frame_time = time.time()
+last_person_seen_time = time.time()
+notification_sent = False
+signal_loss_alerted = False
+tracked_ids = {}
+
+cap = cv2.VideoCapture(0 if USE_WEBCAM else "rtsp://...")
+if not cap.isOpened():
+    print("Lỗi kết nối Video.")
+    exit()
+
+notify_telegram("Hệ thống cửa cuốn thông minh đã khởi động.", important=True)
+
+# --- MAIN LOOP ---
+while True:
+    ret, frame = cap.read()
+    
+    # Kiểm tra mất tín hiệu
+    if not ret:
+        if not signal_loss_alerted and (time.time() - last_frame_time) > SIGNAL_LOSS_TIMEOUT:
+            msg = "CẢNH BÁO: Mất tín hiệu camera quá 30 giây!"
+            db.log_event("SIGNAL_LOSS", msg, truck_count, person_count)
+            notify_telegram(msg, important=True)
+            signal_loss_alerted = True
+        time.sleep(1)
+        continue
+    
+    last_frame_time = time.time()
+    signal_loss_alerted = False
+    
+    # 1. Nhận diện người/xe tải (YOLOv8n)
+    results = general_model.track(frame, persist=True, verbose=False)
+
+    for r in results:
+        for bbox in r.boxes:
+            if bbox.id is None:
+                continue
+            
+            x1, y1, x2, y2 = map(int, bbox.xyxy[0])
+            obj_id = int(bbox.id[0])
+            cls = int(bbox.cls[0])
+            center_y = (y1 + y2) // 2
+            
+            if obj_id in tracked_ids:
+                prev_y = tracked_ids[obj_id]
+                
+                if prev_y < LINE_Y and center_y >= LINE_Y:
+                    event_msg = ""
+                    if cls == 7:  # Truck
+                        truck_count += 1
+                        event_msg = f"Xe tải {obj_id} đi vào kho."
+                    elif cls == 0:  # Person
+                        person_count += 1
+                        event_msg = f"Người {obj_id} đi vào kho."
+                    
+                    if event_msg:
+                        db.log_event("IN", event_msg, truck_count, person_count)
+                        notify_telegram(event_msg)
+
+                elif prev_y >= LINE_Y and center_y < LINE_Y:
+                    event_msg = ""
+                    if cls == 7:
+                        truck_count = max(0, truck_count - 1)
+                        person_count = max(0, person_count - 1)
+                        event_msg = f"Xe tải {obj_id} đi ra. Tự động trừ 1 người."
+                    elif cls == 0:
+                        person_count = max(0, person_count - 1)
+                        event_msg = f"Người {obj_id} đi ra."
+                    
+                    if event_msg:
+                        db.log_event("OUT", event_msg, truck_count, person_count)
+                        notify_telegram(event_msg)
+            
+            tracked_ids[obj_id] = center_y
+            
+            if cls == 0:
+                last_person_seen_time = time.time()
+                notification_sent = False
+
+    # 2. Nhận diện khuôn mặt (mỗi 30 frame để tiết kiệm CPU)
+    if FACE_RECOGNITION_AVAILABLE and int(time.time()) % 2 == 0:
+        name, loc = check_face(frame)
+        if name == "STRANGER":
+            msg = "NGƯỜI LẠ phát hiện tại cửa kho!"
+            db.log_event("STRANGER", msg, truck_count, person_count)
+            notify_telegram(msg, important=True)
+        elif name:
+            cv2.putText(frame, name, (loc[3], loc[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    # 3. Nhận diện biển số (plate_model + EasyOCR)
+    plate_results = plate_model(frame, verbose=False)
+    for pr in plate_results:
+        for pbox in pr.boxes:
+            px1, py1, px2, py2 = map(int, pbox.xyxy[0])
+            plate_crop = frame[py1:py2, px1:px2]
+            if plate_crop.size > 0:
+                ocr_results = ocrReader.readtext(plate_crop, detail=0)
+                if ocr_results:
+                    plate_text = "".join(ocr_results)
+                    is_auth, matched = check_plate(plate_text)
+                    if not is_auth:
+                        msg = f"XE LẠ: Biển số [{plate_text}] không nằm trong danh sách!"
+                        db.log_event("UNKNOWN_PLATE", msg, truck_count, person_count)
+                        notify_telegram(msg, important=True)
+                    cv2.putText(frame, plate_text, (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+                cv2.rectangle(frame, (px1, py1), (px2, py2), (255, 0, 255), 2)
+
+    # 4. Kiểm tra trạng thái cửa cuốn (mỗi giây)
+    current_door_state = check_door_state(frame)
+    if current_door_state != 'unknown':
+        new_door_open = (current_door_state == 'open')
+        
+        # Phát hiện thay đổi trạng thái
+        if new_door_open != door_open:
+            door_open = new_door_open
+            state_msg = "Cửa cuốn đã MỞ." if door_open else "Cửa cuốn đã ĐÓNG."
+            db.log_event("DOOR_STATE", state_msg, truck_count, person_count)
+            notify_telegram(state_msg)
+    
+    # 5. Cảnh báo cửa mở quá 5 phút không có người
+    if door_open and person_count == 0:
+        if (time.time() - last_person_seen_time) / 60 > 5 and not notification_sent:
+            msg = "CẢNH BÁO: Cửa mở nhưng không có người quá 5 phút!"
+            db.log_event("ALERT", msg, truck_count, person_count)
+            notify_telegram(msg, important=True)
+            notification_sent = True
+
+    # GUI
+    door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
+    cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 2)
+    cv2.putText(frame, f"T:{truck_count} P:{person_count} | {door_status}", (10, 40), 1, 2, (0, 0, 255), 2)
+    # Vẽ ROI cửa cuốn
+    x1, y1, x2, y2 = DOOR_ROI
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+    cv2.putText(frame, "DOOR ROI", (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+    cv2.imshow("Smart Door System", frame)
+    if (cv2.waitKey(1) & 0xFF) == ord(" "):
+        break
 
 cap.release()
 cv2.destroyAllWindows()

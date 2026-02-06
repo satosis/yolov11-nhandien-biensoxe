@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "door-alert",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ],
+      "id": "1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.important}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Is Important?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        300,
+        300
+      ],
+      "id": "2"
+    },
+    {
+      "parameters": {
+        "chatId": "-5273529392",
+        "text": "🚨 [QUAN TRỌNG]: {{$json.message}}",
+        "additionalFields": {}
+      },
+      "name": "Telegram (Important)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        550,
+        200
+      ],
+      "id": "3"
+    },
+    {
+      "parameters": {
+        "chatId": "-5171619580",
+        "text": "ℹ️ [THÔNG BÁO]: {{$json.message}}",
+        "additionalFields": {}
+      },
+      "name": "Telegram (Regular)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        550,
+        400
+      ],
+      "id": "4"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Is Important?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Important?": {
+      "main": [
+        [
+          {
+            "node": "Telegram (Important)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (Regular)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

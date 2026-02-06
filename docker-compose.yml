@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  frigate:
+    container_name: frigate
+    restart: unless-stopped
+    image: ghcr.io/blakeblackshear/frigate:stable
+    privileged: true
+    shm_size: "256mb"
+
+    ports:
+      - "5000:5000"
+      - "8554:8554"
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+
+    volumes:
+      - ./config.yml:/config/config.yml
+      - ./media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+
+    environment:
+      FRIGATE_RTSP_PASSWORD: "password"

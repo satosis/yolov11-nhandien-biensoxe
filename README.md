@@ -1,5 +1,5 @@
-# **Nhận diện biển số xe với YOLO11**
-- [Nhận diện biển số xe với YOLO11](#nhận-diện-biển-số-xe-với-YOLO11)
+# **Nhận diện biển số xe với YOLO**
+- [Nhận diện biển số xe với YOLO](#nhận-diện-biển-số-xe-với-YOLO)
   - [Giới thiệu](#giới-thiệu)
   - [Tổng quan](#tổng-quan)
   - [Model](#model)
@@ -7,25 +7,6 @@
   - [Cài đặt project](#cài-đặt-project)
   - [Thông tin](#thông-tin)
 
-## **Giới thiệu**
-
-  **HỌC PHẦN TRÍ TUỆ NHÂN TẠO (A.I)**
-
-  **Nhóm 3 - Lớp IT2K59 - Trường Đại học Giao thông Vận tải**
-
-  *Thành viên:*
-
-  ```
-  Nguyễn Văn Tuấn
-
-  Hoàng Trọng Nguyên
-
-  Hoàng Quốc Phương
-
-  Nguyễn Mạnh Hùng
-
-  Phạm Quang Minh
-  ```
 
 ## **Tổng quan**
 
@@ -46,7 +27,7 @@
 
 ## **Model**
 
-  Model phát hiện biển số xe được sử dụng để phát hiện các biển số xe. Mô hình đã được huấn luyện bằng YOLO11 trong **50** epoch với **10125** hình ảnh có kích thước `480x480`.
+  Model phát hiện biển số xe được sử dụng để phát hiện các biển số xe. Mô hình đã được huấn luyện bằng YOLO trong **50** epoch với **10125** hình ảnh có kích thước `480x480`.
 
   Mô hình đã được huấn luyện có sẵn trong [./models](./models/license_plate_recognition.pt).
 
@@ -63,91 +44,41 @@
 - opencv_python 4.11.0.86
 - Ultralytics 8.3.160
 - EasyOCR 1.7.2
+- python-dotenv (Quản lý biến môi trường)
+- requests (Gửi thông báo Telegram/n8n)
 
-## **Cài đặt project**
+## **Hệ thống Cửa Cuốn Thông Minh**
 
-Trong project này, EasyOCR sẽ nhận diện biển số xe thông qua webcam.
+Dự án đã được nâng cấp với các tính năng:
+1. **Nhận diện đa đối tượng**: Xe tải, Người, Khuôn mặt và Biển số xe.
+2. **Logic đếm thông minh**: 
+   - Tự động đếm xe tải/người vào/ra.
+   - Quy tắc đặc biệt: Xe tải ra khỏi cửa mặc định trừ -1 người bên phải xe.
+3. **Cảnh báo an toàn**: Thông báo Telegram nếu cửa mở > 5 phút mà không có người.
+4. **Nhật ký sự kiện**: Lưu toàn bộ lịch sử vào database SQLite (`door_events.db`).
+5. **Điều khiển Telegram**: Sử dụng lệnh `/stats` để xem thống kê nhanh.
 
-Mọi câu lệnh dưới đây đã được chúng mình thử nghiệm với Python 3.12.10 và PyCharm 2025.1.2. Bạn cũng có thể sử dụng IDE Python khác ngoài PyCharm.
+## **Cấu hình Project**
 
-Nếu sử dụng phiên bản Python cũ hơn và không thực thi được các câu lệnh này, bạn có thể update lên phiên bản giống như trên hoặc tìm các câu lệnh phù hợp từ các nguồn bên ngoài.
+1. Tạo và cấu hình file [**.env**]:
+2. Cài đặt các phần phụ thuộc mới:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Bạn có thể cấu hình trình thông dịch Python (Python Interpreter) và PyCharm sẽ cho phép bạn tạo môi trường ảo (Virtualenv) và file môi trường ảo sẽ được lưu trong thư mục `.venv`.
+## **Cài đặt n8n trên Orange Pi**
 
-- Mặc định môi trường ảo .venv sẽ được kích hoạt, nếu không bạn có thể chạy lệnh sau:
+Bạn có thể sử dụng script có sẵn để cài đặt n8n:
 
-  ```bash
-  .venv/Scripts/activate
-  ```
-
-- Cài đặt các phần phụ thuộc:
-
-  ```bash
-  pip install -r requirements.txt
-  ```
-
-Lưu ý: Đường dẫn đến file `requirements.txt` không được chứa khoảng trắng/tiếng Việt có dấu.
-
-- Bạn có thể cập nhật pip lên phiên bản mới nhất (nếu cần) với câu lệnh:
-
-  ```bash
-  python.exe -m pip install --upgrade pip
-  ```
-
-- Cài đặt PyTorch:
-
-  - Gỡ cài đặt bản cũ:
-
-    ```bash
-    pip3 uninstall torch torchvision torchaudio
-    ```
-
-  - Nếu bạn muốn chạy trên CPU hoặc không có GPU:
-
-    ```bash
-    pip3 install torch torchvision torchaudio
-    ```
-
-    Tại dòng 8 `ocrReader = easyocr.Reader(['en','vi'], gpu=True)`, đổi `gpu=True` thành `gpu=False`.
-
-  - Nếu bạn muốn chạy trên GPU:
-
-    Kiểm tra phiên bản CUDA trong cmd với câu lệnh sau: `nvidia-smi`
-
-    - CUDA 11.8
-
-      ```bash
-      pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-      ```
-
-    - CUDA 12.6
-
-      ```bash
-      pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-      ```
-
-    - CUDA 12.8
-
-      ```bash
-      pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-      ```
-
-    Nếu muốn cài PyTorch hỗ trợ đúng phiên bản CUDA của mình bằng cách thử thay 3 số cuối thành phiên bản của bạn.
-
-    Ví dụ: CUDA 12.7:  thay `cu128` thành `cu127`. Hiện tại PyTorch hỗ trợ cài đến 12.8. Bạn có thể kiểm tra tại trang chủ của [PyTorch](https://pytorch.org/).
-
-- Chạy chương trình:
-
-  ```bash
-  python main.py
-  ```
-
-- Sau khi làm việc với môi trường ảo xong, bạn có thể tắt môi trường ảo bằng câu lệnh:
-
-  ```bash
-  deactivate
-  ```
-
-## **Thông tin**
-
-Mã nguồn được phát triển bởi Nhóm 3 (A.I) lớp IT2K59 – Trường Đại học Giao thông Vận tải.
+1. Cấp quyền thực thi cho script:
+   ```bash
+   chmod +x n8n/n8n.sh
+   ```
+2. Chạy script cài đặt:
+   ```bash
+   sudo ./n8n/n8n.sh install
+   ```
+3. Sau khi cài đặt, bạn có thể quản lý n8n bằng menu:
+   ```bash
+   ./n8n/n8n.sh
+   ```

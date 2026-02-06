@@ -54,9 +54,6 @@ DEDUPE_SECONDS = int(os.getenv("DEDUPE_SECONDS", "15"))
 MATCH_VEHICLE_REENTRY_SECONDS = int(os.getenv("MATCH_VEHICLE_REENTRY_SECONDS", "86400"))
 
 PTZ_AUTO_RETURN_SECONDS = int(os.getenv("PTZ_AUTO_RETURN_SECONDS", "300"))
-HEARTBEAT_MAX_SILENCE_SECONDS = int(
-    os.getenv("HEARTBEAT_MAX_SILENCE_SECONDS", str(PTZ_AUTO_RETURN_SECONDS))
-)
 
 ONVIF_HOST = os.getenv("ONVIF_HOST", "")
 ONVIF_PORT = int(os.getenv("ONVIF_PORT", "80"))
@@ -221,6 +218,18 @@ def init_db() -> None:
             last_view_utc TEXT,
             updated_at_utc TEXT NOT NULL,
             updated_by TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ptz_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            action TEXT NOT NULL,
+            reason TEXT,
+            prev_mode TEXT,
+            new_mode TEXT
         )
         """
     )
@@ -549,6 +558,23 @@ def set_ptz_state(mode: str, ocr_enabled: int, updated_by: str, last_view_utc: s
     publish_state()
 
 
+def insert_ptz_event(action: str, reason: str, prev_mode: str | None, new_mode: str | None) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO ptz_events (ts_utc, action, reason, prev_mode, new_mode)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (utc_now(), action, reason, prev_mode, new_mode),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("PTZ event insert failed: %s", exc)
+
+
 def update_ptz_last_view(updated_by: str) -> None:
     state = get_ptz_state()
     if state["mode"] != "panorama":
@@ -618,13 +644,15 @@ def auto_return_loop() -> None:
                         last_dt = datetime.fromisoformat(last_view)
                         idle_seconds = (datetime.utcnow() - last_dt).total_seconds()
                     except ValueError:
-                        idle_seconds = HEARTBEAT_MAX_SILENCE_SECONDS
+                        idle_seconds = PTZ_AUTO_RETURN_SECONDS
                 else:
-                    idle_seconds = HEARTBEAT_MAX_SILENCE_SECONDS
+                    idle_seconds = PTZ_AUTO_RETURN_SECONDS
 
-                if idle_seconds >= HEARTBEAT_MAX_SILENCE_SECONDS:
+                if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
                     if ptz_goto_preset(ONVIF_PRESET_GATE):
+                        prev_mode = state["mode"]
                         set_ptz_state("gate", 1, "auto", None)
+                        insert_ptz_event("auto_return", "no_heartbeat_5m", prev_mode, "gate")
                         log_counter_event(
                             "ptz",
                             "auto",
@@ -1670,11 +1698,15 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         return
     if topic == "shed/cmd/ptz_panorama":
         if ptz_goto_preset(ONVIF_PRESET_PANORAMA):
+            prev_mode = get_ptz_state()["mode"]
             set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
         return
     if topic == "shed/cmd/ptz_gate":
         if ptz_goto_preset(ONVIF_PRESET_GATE):
+            prev_mode = get_ptz_state()["mode"]
             set_ptz_state("gate", 1, "ha", None)
+            insert_ptz_event("set_gate", "manual", prev_mode, "gate")
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

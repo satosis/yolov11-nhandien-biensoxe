@@ -80,6 +80,7 @@ Set these in `.env` to enable PTZ control from Home Assistant:
 Behavior:
 - Panorama mode disables OCR in `event_bridge`.
 - If no viewer heartbeat is received for `PTZ_AUTO_RETURN_SECONDS`, the camera auto-returns to Gate view and OCR re-enables.
+- Home Assistant sends heartbeats every `HEARTBEAT_INTERVAL_SECONDS` (default 30) while in panorama mode.
 
 ## Ops commands
 ```

@@ -24,6 +24,7 @@ Commands:
   alerts            Show last_sent for no_one_gate_open
   report-month YYYY-MM
   chart-month YYYY-MM
+  test-ptz [--fast]
 USAGE
 }
 
@@ -126,6 +127,14 @@ case "${1:-}" in
       echo "$chart_output"
     else
       echo "$chart_output"
+    fi
+    ;;
+  test-ptz)
+    shift
+    if [[ "${1:-}" == "--fast" ]]; then
+      python3 "${BASE_DIR}/deploy/tests/test_ptz.py" --fast
+    else
+      python3 "${BASE_DIR}/deploy/tests/test_ptz.py"
     fi
     ;;
   *)

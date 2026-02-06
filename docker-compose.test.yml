@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  mosquitto:
+    container_name: mosquitto_test
+    ports:
+      - "1884:1883"
+
+  event_bridge:
+    container_name: event_bridge_test
+    ports:
+      - "18000:8000"
+    environment:
+      EVENT_BRIDGE_TEST_MODE: ${EVENT_BRIDGE_TEST_MODE:-1}
+      DB_PATH: ${DB_PATH:-/data/test_events.db}
+      PTZ_AUTO_RETURN_SECONDS: ${PTZ_AUTO_RETURN_SECONDS:-5}
+      ONVIF_SIMULATE_FAIL: ${ONVIF_SIMULATE_FAIL:-0}
+      ONVIF_HOST: ${ONVIF_HOST:-127.0.0.1}
+      ONVIF_PORT: ${ONVIF_PORT:-80}
+      ONVIF_USER: ${ONVIF_USER:-test}
+      ONVIF_PASS: ${ONVIF_PASS:-test}
+      ONVIF_PRESET_GATE: ${ONVIF_PRESET_GATE:-gate}
+      ONVIF_PRESET_PANORAMA: ${ONVIF_PRESET_PANORAMA:-panorama}

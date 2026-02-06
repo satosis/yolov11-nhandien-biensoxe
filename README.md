@@ -96,6 +96,7 @@ Behavior:
 ./cmd alerts
 ./cmd report-month YYYY-MM
 ./cmd chart-month YYYY-MM
+./cmd test-ptz [--fast]
 ```
 
 ## Troubleshooting

@@ -62,6 +62,8 @@ ONVIF_PASS = os.getenv("ONVIF_PASS", "")
 ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
 ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
 ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
+EVENT_BRIDGE_TEST_MODE = os.getenv("EVENT_BRIDGE_TEST_MODE", "0") == "1"
+ONVIF_SIMULATE_FAIL = os.getenv("ONVIF_SIMULATE_FAIL", "0") == "1"
 
 ALERT_KEY_NO_ONE_GATE_OPEN = "no_one_gate_open"
 
@@ -230,6 +232,16 @@ def init_db() -> None:
             reason TEXT,
             prev_mode TEXT,
             new_mode TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ptz_test_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            preset TEXT NOT NULL,
+            success INTEGER NOT NULL
         )
         """
     )
@@ -604,6 +616,26 @@ def ptz_goto_preset(preset_token: str) -> bool:
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
         logger.warning("ONVIF preset not configured; skipping PTZ move")
         return False
+    if EVENT_BRIDGE_TEST_MODE:
+        success = 0 if ONVIF_SIMULATE_FAIL else 1
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO ptz_test_calls (ts_utc, preset, success)
+                VALUES (?, ?, ?)
+                """,
+                (utc_now(), preset_token, success),
+            )
+            conn.commit()
+            conn.close()
+        except sqlite3.Error as exc:
+            logger.warning("PTZ test call insert failed: %s", exc)
+        if not success:
+            logger.warning("ONVIF simulate failure enabled; skipping PTZ move")
+            return False
+        return True
     try:
         camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
         media = camera.create_media_service()

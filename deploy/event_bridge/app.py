@@ -5,7 +5,7 @@ import re
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import paho.mqtt.client as mqtt
 import requests
@@ -35,11 +35,25 @@ IMPORTANT_LABELS = {"person", "truck"}
 NONIMPORTANT_LABELS = {"car"}
 ALLOWED_EVENT_TYPES = {"new", "end"}
 
+LEFT_EXIT_WINDOW_SECONDS = int(os.getenv("LEFT_EXIT_WINDOW_SECONDS", "30"))
+LEFT_EXIT_MAX_EXTRA_PEOPLE = int(os.getenv("LEFT_EXIT_MAX_EXTRA_PEOPLE", "2"))
+MAX_ACTIVE_VEHICLE_EXIT_SESSIONS = int(os.getenv("MAX_ACTIVE_VEHICLE_EXIT_SESSIONS", "2"))
+VIRTUAL_GATE_LINE_X = int(os.getenv("VIRTUAL_GATE_LINE_X", "320"))
+INSIDE_SIDE = os.getenv("INSIDE_SIDE", "right").lower()
+GATE_DEBOUNCE_UPDATES = int(os.getenv("GATE_DEBOUNCE_UPDATES", "2"))
+TRACK_TTL_SECONDS = int(os.getenv("TRACK_TTL_SECONDS", "300"))
+
 app = FastAPI()
+
+side_streaks = {}
 
 
 def normalize_plate(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (text or "").upper())
+
+
+def utc_now() -> str:
+    return datetime.utcnow().isoformat()
 
 
 def init_db() -> None:
@@ -86,6 +100,56 @@ def init_db() -> None:
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS counters_state (
+            id INTEGER PRIMARY KEY,
+            people_count INTEGER NOT NULL,
+            vehicle_count INTEGER NOT NULL,
+            updated_at_utc TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS object_tracks (
+            track_key TEXT PRIMARY KEY,
+            label TEXT,
+            last_seen_utc TEXT,
+            last_side TEXT,
+            counted_in INTEGER NOT NULL,
+            counted_out INTEGER NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS counter_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc TEXT NOT NULL,
+            label TEXT,
+            direction TEXT,
+            delta INTEGER,
+            new_count INTEGER,
+            track_key TEXT,
+            source TEXT,
+            note TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vehicle_exit_sessions (
+            session_id TEXT PRIMARY KEY,
+            started_at_utc TEXT NOT NULL,
+            camera TEXT,
+            vehicle_track_key TEXT,
+            active INTEGER NOT NULL,
+            left_person_decrements INTEGER NOT NULL,
+            max_left_person_decrements INTEGER NOT NULL
+        )
+        """
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_ts_utc ON events (ts_utc)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_label ON events (label)")
     cursor.execute(
@@ -97,8 +161,280 @@ def init_db() -> None:
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_pending_plates_status ON pending_plates (status)"
     )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_counter_events_ts_utc ON counter_events (ts_utc)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_vehicle_exit_sessions_active ON vehicle_exit_sessions (active)"
+    )
     conn.commit()
     conn.close()
+
+    ensure_counters_state()
+
+
+def ensure_counters_state() -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM counters_state WHERE id = 1")
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                "INSERT INTO counters_state (id, people_count, vehicle_count, updated_at_utc) VALUES (1, 0, 0, ?)",
+                (utc_now(),),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Counters state init failed: %s", exc)
+
+
+def get_counters() -> tuple[int, int]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT people_count, vehicle_count FROM counters_state WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return int(row[0]), int(row[1])
+    except sqlite3.Error as exc:
+        logger.warning("Counters read failed: %s", exc)
+    return 0, 0
+
+
+def update_counters(people_count: int, vehicle_count: int) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE counters_state SET people_count = ?, vehicle_count = ?, updated_at_utc = ? WHERE id = 1",
+            (people_count, vehicle_count, utc_now()),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Counters update failed: %s", exc)
+
+
+def log_counter_event(label: str, direction: str, delta: int, new_count: int, track_key: str, source: str, note: str) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO counter_events (ts_utc, label, direction, delta, new_count, track_key, source, note)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (utc_now(), label, direction, delta, new_count, track_key, source, note),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Counter event log failed: %s", exc)
+
+
+def get_track(track_key: str) -> dict | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT track_key, label, last_seen_utc, last_side, counted_in, counted_out FROM object_tracks WHERE track_key = ?",
+            (track_key,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {
+                "track_key": row[0],
+                "label": row[1],
+                "last_seen_utc": row[2],
+                "last_side": row[3],
+                "counted_in": int(row[4]),
+                "counted_out": int(row[5]),
+            }
+    except sqlite3.Error as exc:
+        logger.warning("Track read failed: %s", exc)
+    return None
+
+
+def upsert_track(track_key: str, label: str, last_side: str | None) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO object_tracks (track_key, label, last_seen_utc, last_side, counted_in, counted_out)
+            VALUES (?, ?, ?, ?, 0, 0)
+            ON CONFLICT(track_key) DO UPDATE SET
+                label=excluded.label,
+                last_seen_utc=excluded.last_seen_utc,
+                last_side=excluded.last_side
+            """,
+            (track_key, label, utc_now(), last_side),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Track upsert failed: %s", exc)
+
+
+def update_track_side(track_key: str, last_side: str | None) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE object_tracks SET last_seen_utc = ?, last_side = ? WHERE track_key = ?",
+            (utc_now(), last_side, track_key),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Track side update failed: %s", exc)
+
+
+def mark_track_counted(track_key: str, direction: str) -> None:
+    if direction not in {"in", "out"}:
+        return
+    field = "counted_in" if direction == "in" else "counted_out"
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE object_tracks SET {field} = 1, last_seen_utc = ? WHERE track_key = ?",
+            (utc_now(), track_key),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Track mark counted failed: %s", exc)
+
+
+def cleanup_tracks() -> None:
+    cutoff = datetime.utcnow() - timedelta(seconds=TRACK_TTL_SECONDS)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM object_tracks WHERE last_seen_utc < ?", (cutoff.isoformat(),))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Track cleanup failed: %s", exc)
+
+
+def close_expired_sessions() -> None:
+    cutoff = datetime.utcnow() - timedelta(seconds=LEFT_EXIT_WINDOW_SECONDS)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE vehicle_exit_sessions SET active = 0 WHERE active = 1 AND started_at_utc < ?",
+            (cutoff.isoformat(),),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Close expired sessions failed: %s", exc)
+
+
+def enforce_session_limit() -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT session_id FROM vehicle_exit_sessions WHERE active = 1 ORDER BY started_at_utc ASC"
+        )
+        rows = cursor.fetchall()
+        if rows and len(rows) > MAX_ACTIVE_VEHICLE_EXIT_SESSIONS:
+            to_close = rows[: len(rows) - MAX_ACTIVE_VEHICLE_EXIT_SESSIONS]
+            for row in to_close:
+                cursor.execute(
+                    "UPDATE vehicle_exit_sessions SET active = 0 WHERE session_id = ?",
+                    (row[0],),
+                )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Session limit enforcement failed: %s", exc)
+
+
+def create_vehicle_exit_session(camera: str, track_key: str) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO vehicle_exit_sessions (
+                session_id, started_at_utc, camera, vehicle_track_key, active,
+                left_person_decrements, max_left_person_decrements
+            ) VALUES (?, ?, ?, ?, 1, 0, ?)
+            """,
+            (str(uuid.uuid4()), utc_now(), camera, track_key, LEFT_EXIT_MAX_EXTRA_PEOPLE),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Create vehicle exit session failed: %s", exc)
+
+
+def apply_left_exit_decrement(track_key: str) -> bool:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT session_id, left_person_decrements, max_left_person_decrements, started_at_utc
+            FROM vehicle_exit_sessions
+            WHERE active = 1
+            ORDER BY started_at_utc DESC
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return False
+        session_id, left_dec, max_dec, started_at = row
+        started_dt = datetime.fromisoformat(started_at)
+        if datetime.utcnow() - started_dt > timedelta(seconds=LEFT_EXIT_WINDOW_SECONDS):
+            cursor.execute(
+                "UPDATE vehicle_exit_sessions SET active = 0 WHERE session_id = ?",
+                (session_id,),
+            )
+            conn.commit()
+            conn.close()
+            return False
+        if left_dec >= max_dec:
+            cursor.execute(
+                "UPDATE vehicle_exit_sessions SET active = 0 WHERE session_id = ?",
+                (session_id,),
+            )
+            conn.commit()
+            conn.close()
+            return False
+        cursor.execute(
+            "UPDATE vehicle_exit_sessions SET left_person_decrements = left_person_decrements + 1 WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as exc:
+        logger.warning("Apply left exit decrement failed: %s", exc)
+        return False
+
+
+def active_session_count() -> int:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM vehicle_exit_sessions WHERE active = 1")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return int(count)
+    except sqlite3.Error as exc:
+        logger.warning("Active session count failed: %s", exc)
+        return 0
 
 
 def send_telegram_message(chat_id: str, text: str) -> None:
@@ -141,7 +477,7 @@ def upsert_vehicle_whitelist(plate_norm: str, label: str, added_by: str) -> bool
                 added_by=excluded.added_by,
                 note=excluded.note
             """,
-            (plate_norm, label, datetime.utcnow().isoformat(), added_by, None),
+            (plate_norm, label, utc_now(), added_by, None),
         )
         conn.commit()
         conn.close()
@@ -161,7 +497,7 @@ def update_pending_status(plate_norm: str, status: str, confirmed_by: str) -> No
             SET status = ?, confirmed_at_utc = ?, confirmed_by = ?
             WHERE plate_norm = ? AND status = 'pending'
             """,
-            (status, datetime.utcnow().isoformat(), confirmed_by, plate_norm),
+            (status, utc_now(), confirmed_by, plate_norm),
         )
         conn.commit()
         conn.close()
@@ -184,7 +520,7 @@ def insert_pending_plate(event_id: int, plate_raw: str, plate_norm: str) -> None
                 event_id,
                 plate_raw,
                 plate_norm,
-                datetime.utcnow().isoformat(),
+                utc_now(),
                 "pending",
             ),
         )
@@ -203,7 +539,7 @@ def extract_plate(payload: dict) -> str:
 
 
 def insert_event(payload: dict) -> int:
-    ts_utc = datetime.utcnow().isoformat()
+    ts_utc = utc_now()
     camera = payload.get("camera")
     event_type = payload.get("type")
     label = payload.get("label")
@@ -262,6 +598,109 @@ def maybe_notify_telegram(payload: dict) -> None:
         send_telegram_message(CHAT_ID_NONIMPORTANT, message)
 
 
+def get_track_key(payload: dict) -> str | None:
+    camera = payload.get("camera") or "cam"
+    label = payload.get("label") or "unknown"
+    track_id = payload.get("id") or payload.get("event_id")
+    after = payload.get("after") or {}
+    track_id = track_id or after.get("id") or after.get("event_id")
+    if not track_id:
+        return None
+    return f"{camera}:{label}:{track_id}"
+
+
+def infer_direction(payload: dict, track_key: str) -> tuple[str | None, str, str | None]:
+    direction = payload.get("direction")
+    if direction in {"in", "out"}:
+        return direction, "frigate", None
+    after = payload.get("after") or {}
+    direction = after.get("direction")
+    if direction in {"in", "out"}:
+        return direction, "frigate", None
+
+    box = payload.get("box") or after.get("box")
+    if not isinstance(box, (list, tuple)) or len(box) < 4:
+        return None, "none", None
+
+    try:
+        center_x = (float(box[0]) + float(box[2])) / 2.0
+    except (TypeError, ValueError):
+        return None, "none", None
+
+    side = "left" if center_x < VIRTUAL_GATE_LINE_X else "right"
+    track = get_track(track_key)
+    last_side = track.get("last_side") if track else None
+
+    if last_side == side:
+        side_streaks[track_key] = side_streaks.get(track_key, 0) + 1
+    else:
+        side_streaks[track_key] = 1
+
+    if side_streaks[track_key] < GATE_DEBOUNCE_UPDATES:
+        update_track_side(track_key, side)
+        return None, "virtual", side
+
+    update_track_side(track_key, side)
+    if last_side and last_side != side:
+        if last_side == INSIDE_SIDE and side != INSIDE_SIDE:
+            return "out", "virtual", side
+        if last_side != INSIDE_SIDE and side == INSIDE_SIDE:
+            return "in", "virtual", side
+
+    return None, "virtual", side
+
+
+def handle_counting(payload: dict) -> None:
+    label = payload.get("label")
+    if label not in {"person", "car", "truck"}:
+        return
+
+    track_key = get_track_key(payload)
+    if not track_key:
+        return
+
+    cleanup_tracks()
+    close_expired_sessions()
+    enforce_session_limit()
+
+    direction, source, side = infer_direction(payload, track_key)
+    if side:
+        upsert_track(track_key, label, side)
+    else:
+        upsert_track(track_key, label, None)
+
+    track = get_track(track_key)
+    if not track:
+        return
+
+    people_count, vehicle_count = get_counters()
+
+    if direction == "in" and not track["counted_in"]:
+        if label == "person":
+            people_count += 1
+            log_counter_event(label, "in", 1, people_count, track_key, source, "person_in")
+        else:
+            vehicle_count += 1
+            log_counter_event(label, "in", 1, vehicle_count, track_key, source, "vehicle_in")
+        mark_track_counted(track_key, "in")
+
+    if direction == "out" and not track["counted_out"]:
+        if label == "person":
+            people_count = max(0, people_count - 1)
+            applied_left = apply_left_exit_decrement(track_key)
+            note = "left_side_exit_after_vehicle" if applied_left else "person_out"
+            log_counter_event(label, "out", -1, people_count, track_key, source, note)
+        else:
+            vehicle_count = max(0, vehicle_count - 1)
+            log_counter_event(label, "out", -1, vehicle_count, track_key, source, "vehicle_out")
+            people_count = max(0, people_count - 1)
+            log_counter_event("person", "out", -1, people_count, track_key, source, "driver_exit_assumed_right")
+            create_vehicle_exit_session(payload.get("camera"), track_key)
+        mark_track_counted(track_key, "out")
+
+    update_counters(people_count, vehicle_count)
+
+
 def on_mqtt_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode("utf-8"))
@@ -271,6 +710,7 @@ def on_mqtt_message(client, userdata, msg):
 
     event_id = insert_event(payload)
     handle_plate_workflow(payload, event_id)
+    handle_counting(payload)
     maybe_notify_telegram(payload)
 
 
@@ -363,7 +803,13 @@ async def telegram_webhook(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    people_count, vehicle_count = get_counters()
+    return {
+        "status": "ok",
+        "people_count": people_count,
+        "vehicle_count": vehicle_count,
+        "active_exit_sessions": active_session_count(),
+    }
 
 
 def main() -> None:

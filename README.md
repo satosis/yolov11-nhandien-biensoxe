@@ -20,6 +20,16 @@ TELEGRAM_SECRET_TOKEN=
 ## Frigate RTSP config
 Edit `./deploy/frigate/config.yml` and replace the RTSP placeholders for main/sub streams.
 
+## Counting heuristic (vehicle exit + people)
+- When a vehicle exits, `vehicle_count` is decremented and `people_count` is immediately decremented by 1 (driver on the right side).
+- A short window then allows extra person exits to be subtracted (left side) up to a configurable cap.
+
+Tune in `.env`:
+- `LEFT_EXIT_WINDOW_SECONDS` (default 30)
+- `LEFT_EXIT_MAX_EXTRA_PEOPLE` (default 2)
+- `MAX_ACTIVE_VEHICLE_EXIT_SESSIONS` (default 2)
+- `VIRTUAL_GATE_LINE_X`, `INSIDE_SIDE`, `GATE_DEBOUNCE_UPDATES`, `TRACK_TTL_SECONDS`
+
 ## Home Assistant
 Open:
 - http://<pi-ip>:8123
@@ -33,6 +43,9 @@ Install the Home Assistant iOS app, add the Frigate integration via UI, then add
 ./cmd last 50
 ./cmd pending
 ./cmd whitelist
+./cmd counters
+./cmd sessions
+./cmd counter_events
 ```
 
 ## Troubleshooting

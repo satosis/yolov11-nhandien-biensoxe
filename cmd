@@ -17,6 +17,9 @@ Commands:
   last <N>          Show last N events (most recent first)
   whitelist         List vehicle whitelist
   pending           List pending plate confirmations
+  counters          Show current counters_state
+  sessions          List active vehicle exit sessions
+  counter_events    Show last 50 counter events
 USAGE
 }
 
@@ -69,6 +72,21 @@ case "${1:-}" in
     ensure_db
     sqlite3 -header -column "$DB_PATH" \
       "select pending_id, event_id, plate_raw, plate_norm, first_seen_utc, status from pending_plates where status = 'pending' order by first_seen_utc desc;"
+    ;;
+  counters)
+    ensure_db
+    sqlite3 -header -column "$DB_PATH" \
+      "select id, people_count, vehicle_count, updated_at_utc from counters_state where id = 1;"
+    ;;
+  sessions)
+    ensure_db
+    sqlite3 -header -column "$DB_PATH" \
+      "select session_id, started_at_utc, camera, vehicle_track_key, left_person_decrements, max_left_person_decrements from vehicle_exit_sessions where active = 1 order by started_at_utc desc;"
+    ;;
+  counter_events)
+    ensure_db
+    sqlite3 -header -column "$DB_PATH" \
+      "select ts_utc, label, direction, delta, new_count, track_key, source, note from counter_events order by id desc limit 50;"
     ;;
   *)
     usage

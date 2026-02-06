@@ -3,12 +3,14 @@ import cv2
 import easyocr
 import logging
 import os
+import re
 import time
 import requests
 import sqlite3
 import json
 import threading
 import numpy as np
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -36,7 +38,8 @@ PLATE_MODEL_PATH = "./models/Speed_limit.pt"
 GENERAL_MODEL_PATH = "yolov8n.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
 LINE_Y = 300
-USE_WEBCAM = True
+USE_WEBCAM = os.getenv("USE_WEBCAM", "false").lower() == "true"
+RTSP_URL = os.getenv("RTSP_URL", "rtsp://<USER>:<PASS>@<CAMERA_IP>:554/cam/realmonitor?channel=1&subtype=0")
 SIGNAL_LOSS_TIMEOUT = 30
 
 # --- CẤU HÌNH PHÁT HIỆN CỬA (Brightness-based fallback) ---
@@ -90,16 +93,116 @@ class DatabaseManager:
                 truck_count INTEGER, person_count INTEGER
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vehicle_whitelist (
+                plate_norm TEXT PRIMARY KEY,
+                label TEXT,
+                added_at_utc TEXT,
+                added_by TEXT,
+                note TEXT
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pending_plates (
+                pending_id TEXT PRIMARY KEY,
+                event_id INTEGER,
+                plate_raw TEXT,
+                plate_norm TEXT,
+                first_seen_utc TEXT,
+                status TEXT,
+                confirmed_at_utc TEXT,
+                confirmed_by TEXT
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_vehicle_whitelist_plate_norm ON vehicle_whitelist (plate_norm)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pending_plates_plate_norm ON pending_plates (plate_norm)'
+        )
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_pending_plates_status ON pending_plates (status)'
+        )
         conn.commit()
         conn.close()
+
+    def is_plate_whitelisted(self, plate_norm):
+        try:
+            conn = sqlite3.connect(self.path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1 FROM vehicle_whitelist WHERE plate_norm = ? LIMIT 1', (plate_norm,))
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except sqlite3.Error:
+            return False
+
+    def add_pending_plate(self, pending_id, event_id, plate_raw, plate_norm, first_seen_utc):
+        try:
+            conn = sqlite3.connect(self.path)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                INSERT OR IGNORE INTO pending_plates (
+                    pending_id, event_id, plate_raw, plate_norm, first_seen_utc, status
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (pending_id, event_id, plate_raw, plate_norm, first_seen_utc, "pending")
+            )
+            conn.commit()
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+    def upsert_vehicle_whitelist(self, plate_norm, label, added_by, note=None):
+        try:
+            conn = sqlite3.connect(self.path)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                INSERT INTO vehicle_whitelist (plate_norm, label, added_at_utc, added_by, note)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(plate_norm) DO UPDATE SET
+                    label=excluded.label,
+                    added_at_utc=excluded.added_at_utc,
+                    added_by=excluded.added_by,
+                    note=excluded.note
+                ''',
+                (plate_norm, label, datetime.utcnow().isoformat(), added_by, note)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error:
+            return False
+
+    def update_pending_status(self, plate_norm, status, confirmed_by):
+        try:
+            conn = sqlite3.connect(self.path)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                UPDATE pending_plates
+                SET status = ?, confirmed_at_utc = ?, confirmed_by = ?
+                WHERE plate_norm = ? AND status = 'pending'
+                ''',
+                (status, datetime.utcnow().isoformat(), confirmed_by, plate_norm)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error:
+            return False
 
     def log_event(self, event_type, description, trucks, people):
         conn = sqlite3.connect(self.path)
         cursor = conn.cursor()
         cursor.execute('INSERT INTO events (timestamp, event_type, description, truck_count, person_count) VALUES (?, ?, ?, ?, ?)',
                        (datetime.now(), event_type, description, trucks, people))
+        event_id = cursor.lastrowid
         conn.commit()
         conn.close()
+        return event_id
 
     def get_stats(self):
         conn = sqlite3.connect(self.path)
@@ -153,6 +256,9 @@ def check_plate(plate_text):
         if auth_plate.replace("-", "") in normalized or normalized in auth_plate.replace("-", ""):
             return True, auth_plate
     return False, None
+
+def normalize_plate(plate_text):
+    return re.sub(r'[^A-Z0-9]', '', plate_text.upper())
 
 # --- DOOR STATE DETECTION ---
 door_model = None
@@ -215,7 +321,9 @@ def telegram_bot_handler():
                     msg = update.get("message", {})
                     text = msg.get("text", "")
                     chat_id = msg.get("chat", {}).get("id")
-                    
+                    user = msg.get("from", {})
+                    user_label = user.get("username") or str(user.get("id") or "unknown")
+
                     if text == "/stats":
                         rows = db.get_stats()
                         stat_text = "📊 Thống kê hôm nay:\n"
@@ -224,6 +332,48 @@ def telegram_bot_handler():
                         stat_text += f"\nHiện tại: {truck_count} xe, {person_count} người."
                         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                                       json={"chat_id": chat_id, "text": stat_text})
+                        continue
+
+                    if not text or not text.startswith("/"):
+                        continue
+
+                    parts = text.strip().split(maxsplit=1)
+                    cmd = parts[0].split("@")[0].lower()
+                    plate_raw = parts[1] if len(parts) > 1 else ""
+                    plate_norm = normalize_plate(plate_raw)
+                    if cmd in {"/mine", "/staff", "/reject"} and not plate_norm:
+                        requests.post(
+                            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                            json={"chat_id": chat_id, "text": "Thiếu biển số. Ví dụ: /mine 51A12345"}
+                        )
+                        continue
+
+                    if cmd == "/mine":
+                        if db.upsert_vehicle_whitelist(plate_norm, "mine", user_label):
+                            db.update_pending_status(plate_norm, "approved_mine", user_label)
+                            reply = f"✅ Đã thêm {plate_norm} vào whitelist (mine)."
+                        else:
+                            reply = f"⚠️ Không thể cập nhật whitelist cho {plate_norm}."
+                        requests.post(
+                            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                            json={"chat_id": chat_id, "text": reply}
+                        )
+                    elif cmd == "/staff":
+                        if db.upsert_vehicle_whitelist(plate_norm, "staff", user_label):
+                            db.update_pending_status(plate_norm, "approved_staff", user_label)
+                            reply = f"✅ Đã thêm {plate_norm} vào whitelist (staff)."
+                        else:
+                            reply = f"⚠️ Không thể cập nhật whitelist cho {plate_norm}."
+                        requests.post(
+                            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                            json={"chat_id": chat_id, "text": reply}
+                        )
+                    elif cmd == "/reject":
+                        db.update_pending_status(plate_norm, "rejected", user_label)
+                        requests.post(
+                            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                            json={"chat_id": chat_id, "text": f"✅ Đã từ chối {plate_norm}."}
+                        )
         except: 
             pass
         time.sleep(2)
@@ -243,7 +393,7 @@ notification_sent = False
 signal_loss_alerted = False
 tracked_ids = {}
 
-cap = cv2.VideoCapture(0 if USE_WEBCAM else "rtsp://...")
+cap = cv2.VideoCapture(0 if USE_WEBCAM else RTSP_URL)
 if not cap.isOpened():
     print("Lỗi kết nối Video.")
     exit()
@@ -336,11 +486,25 @@ while True:
                 ocr_results = ocrReader.readtext(plate_crop, detail=0)
                 if ocr_results:
                     plate_text = "".join(ocr_results)
-                    is_auth, matched = check_plate(plate_text)
-                    if not is_auth:
-                        msg = f"XE LẠ: Biển số [{plate_text}] không nằm trong danh sách!"
-                        db.log_event("UNKNOWN_PLATE", msg, truck_count, person_count)
-                        notify_telegram(msg, important=True)
+                    plate_norm = normalize_plate(plate_text)
+                    if plate_norm:
+                        is_auth, matched = check_plate(plate_text)
+                        is_whitelisted = is_auth or db.is_plate_whitelisted(plate_norm)
+                        if not is_whitelisted:
+                            msg = f"Xe lạ phát hiện: {plate_norm}"
+                            event_id = db.log_event("UNKNOWN_PLATE", msg, truck_count, person_count)
+                            pending_id = str(uuid.uuid4())
+                            db.add_pending_plate(
+                                pending_id=pending_id,
+                                event_id=event_id,
+                                plate_raw=plate_text,
+                                plate_norm=plate_norm,
+                                first_seen_utc=datetime.utcnow().isoformat()
+                            )
+                            notify_telegram(
+                                f"{msg}\nXác nhận:\n/mine {plate_norm}\n/staff {plate_norm}\n/reject {plate_norm}",
+                                important=False
+                            )
                     cv2.putText(frame, plate_text, (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
                 cv2.rectangle(frame, (px1, py1), (px2, py2), (255, 0, 255), 2)
 

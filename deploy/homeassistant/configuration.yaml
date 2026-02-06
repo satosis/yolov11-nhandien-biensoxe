@@ -1,0 +1,7 @@
+default_config:
+
+mqtt:
+  discovery: true
+
+lovelace:
+  mode: yaml

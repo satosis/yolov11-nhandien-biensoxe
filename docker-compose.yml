@@ -1,23 +1,71 @@
 version: "3.9"
 
 services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./data/mosquitto:/mosquitto/data
+      - ./data/mosquitto-log:/mosquitto/log
+    networks:
+      - surv-net
+
   frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
     container_name: frigate
     restart: unless-stopped
-    image: ghcr.io/blakeblackshear/frigate:stable
     privileged: true
     shm_size: "256mb"
-
+    depends_on:
+      - mosquitto
     ports:
       - "5000:5000"
       - "8554:8554"
       - "8555:8555/tcp"
       - "8555:8555/udp"
-
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
     volumes:
-      - ./config.yml:/config/config.yml
-      - ./media:/media/frigate
+      - /etc/localtime:/etc/localtime:ro
+      - ./deploy/frigate/config.yml:/config/config.yml:ro
+      - ./data/frigate:/media/frigate
+    networks:
+      - surv-net
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    network_mode: host
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - ./data/homeassistant:/config
       - /etc/localtime:/etc/localtime:ro
 
+  event_bridge:
+    build: ./deploy/event_bridge
+    container_name: event_bridge
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    env_file:
+      - ./.env
     environment:
-      FRIGATE_RTSP_PASSWORD: "password"
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - ./data/event_bridge:/data
+    ports:
+      - "8000:8000"
+    networks:
+      - surv-net
+
+networks:
+  surv-net:
+    driver: bridge

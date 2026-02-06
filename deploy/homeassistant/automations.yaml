@@ -1,0 +1,14 @@
+- id: shed_viewer_heartbeat
+  alias: Shed Viewer Heartbeat
+  trigger:
+    - platform: time_pattern
+      seconds: "/30"
+  condition:
+    - condition: state
+      entity_id: sensor.shed_ptz_mode
+      state: "panorama"
+  action:
+    - service: mqtt.publish
+      data:
+        topic: shed/cmd/view_heartbeat
+        payload: "1"

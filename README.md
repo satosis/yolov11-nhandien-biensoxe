@@ -30,6 +30,14 @@ Tune in `.env`:
 - `MAX_ACTIVE_VEHICLE_EXIT_SESSIONS` (default 2)
 - `VIRTUAL_GATE_LINE_X`, `INSIDE_SIDE`, `GATE_DEBOUNCE_UPDATES`, `TRACK_TTL_SECONDS`
 
+## Gate commands (Telegram)
+Use in group chat:
+- `/gate_closed` -> set gate closed
+- `/gate_open` -> set gate open
+- `/gate_status` -> show gate state + people_count
+
+Alert rule: when `people_count == 0` and gate is open, an IMPORTANT alert is sent with a snapshot (cooldown via `ALERT_COOLDOWN_SECONDS`).
+
 ## Home Assistant
 Open:
 - http://<pi-ip>:8123
@@ -46,6 +54,8 @@ Install the Home Assistant iOS app, add the Frigate integration via UI, then add
 ./cmd counters
 ./cmd sessions
 ./cmd counter_events
+./cmd gate
+./cmd alerts
 ```
 
 ## Troubleshooting

@@ -20,6 +20,8 @@ Commands:
   counters          Show current counters_state
   sessions          List active vehicle exit sessions
   counter_events    Show last 50 counter events
+  gate              Show gate_state + people_count
+  alerts            Show last_sent for no_one_gate_open
 USAGE
 }
 
@@ -87,6 +89,16 @@ case "${1:-}" in
     ensure_db
     sqlite3 -header -column "$DB_PATH" \
       "select ts_utc, label, direction, delta, new_count, track_key, source, note from counter_events order by id desc limit 50;"
+    ;;
+  gate)
+    ensure_db
+    sqlite3 -header -column "$DB_PATH" \
+      "select gate_state.gate_closed, gate_state.updated_at_utc, gate_state.updated_by, counters_state.people_count from gate_state join counters_state on counters_state.id = 1 where gate_state.id = 1;"
+    ;;
+  alerts)
+    ensure_db
+    sqlite3 -header -column "$DB_PATH" \
+      "select alert_key, last_sent_utc from alerts where alert_key = 'no_one_gate_open';"
     ;;
   *)
     usage

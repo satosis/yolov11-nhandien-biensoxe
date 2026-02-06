@@ -43,6 +43,13 @@ INSIDE_SIDE = os.getenv("INSIDE_SIDE", "right").lower()
 GATE_DEBOUNCE_UPDATES = int(os.getenv("GATE_DEBOUNCE_UPDATES", "2"))
 TRACK_TTL_SECONDS = int(os.getenv("TRACK_TTL_SECONDS", "300"))
 
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "10"))
+ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "900"))
+FRIGATE_BASE_URL = os.getenv("FRIGATE_BASE_URL", "http://frigate:5000")
+FRIGATE_CAMERA = os.getenv("FRIGATE_CAMERA", "cam1")
+
+ALERT_KEY_NO_ONE_GATE_OPEN = "no_one_gate_open"
+
 app = FastAPI()
 
 side_streaks = {}
@@ -150,6 +157,24 @@ def init_db() -> None:
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gate_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            gate_closed INTEGER NOT NULL,
+            updated_at_utc TEXT NOT NULL,
+            updated_by TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alerts (
+            alert_key TEXT PRIMARY KEY,
+            last_sent_utc TEXT
+        )
+        """
+    )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_ts_utc ON events (ts_utc)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_label ON events (label)")
     cursor.execute(
@@ -171,6 +196,7 @@ def init_db() -> None:
     conn.close()
 
     ensure_counters_state()
+    ensure_gate_state()
 
 
 def ensure_counters_state() -> None:
@@ -188,6 +214,23 @@ def ensure_counters_state() -> None:
         conn.close()
     except sqlite3.Error as exc:
         logger.warning("Counters state init failed: %s", exc)
+
+
+def ensure_gate_state() -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM gate_state WHERE id = 1")
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                "INSERT INTO gate_state (id, gate_closed, updated_at_utc, updated_by) VALUES (1, 0, ?, ?)",
+                (utc_now(), "system"),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Gate state init failed: %s", exc)
 
 
 def get_counters() -> tuple[int, int]:
@@ -216,6 +259,62 @@ def update_counters(people_count: int, vehicle_count: int) -> None:
         conn.close()
     except sqlite3.Error as exc:
         logger.warning("Counters update failed: %s", exc)
+
+
+def get_gate_state() -> tuple[int, str | None, str | None]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT gate_closed, updated_at_utc, updated_by FROM gate_state WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return int(row[0]), row[1], row[2]
+    except sqlite3.Error as exc:
+        logger.warning("Gate state read failed: %s", exc)
+    return 0, None, None
+
+
+def set_gate_state(gate_closed: int, updated_by: str) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE gate_state SET gate_closed = ?, updated_at_utc = ?, updated_by = ? WHERE id = 1",
+            (gate_closed, utc_now(), updated_by),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Gate state update failed: %s", exc)
+
+
+def get_alert_last(alert_key: str) -> str | None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT last_sent_utc FROM alerts WHERE alert_key = ?", (alert_key,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return row[0]
+    except sqlite3.Error as exc:
+        logger.warning("Alert read failed: %s", exc)
+    return None
+
+
+def update_alert_last(alert_key: str, timestamp: str) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO alerts (alert_key, last_sent_utc) VALUES (?, ?) ON CONFLICT(alert_key) DO UPDATE SET last_sent_utc = excluded.last_sent_utc",
+            (alert_key, timestamp),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("Alert update failed: %s", exc)
 
 
 def log_counter_event(label: str, direction: str, delta: int, new_count: int, track_key: str, source: str, note: str) -> None:
@@ -378,7 +477,7 @@ def create_vehicle_exit_session(camera: str, track_key: str) -> None:
         logger.warning("Create vehicle exit session failed: %s", exc)
 
 
-def apply_left_exit_decrement(track_key: str) -> bool:
+def apply_left_exit_decrement() -> bool:
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -445,6 +544,23 @@ def send_telegram_message(chat_id: str, text: str) -> None:
         requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
     except requests.RequestException as exc:
         logger.warning("Telegram send failed: %s", exc)
+
+
+def send_telegram_photo(chat_id: str, caption: str, image_bytes: bytes) -> bool:
+    if not TELEGRAM_TOKEN or not chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    try:
+        response = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": ("snapshot.jpg", image_bytes)},
+            timeout=15,
+        )
+        return response.ok
+    except requests.RequestException as exc:
+        logger.warning("Telegram sendPhoto failed: %s", exc)
+        return False
 
 
 def is_plate_whitelisted(plate_norm: str) -> bool:
@@ -687,7 +803,7 @@ def handle_counting(payload: dict) -> None:
     if direction == "out" and not track["counted_out"]:
         if label == "person":
             people_count = max(0, people_count - 1)
-            applied_left = apply_left_exit_decrement(track_key)
+            applied_left = apply_left_exit_decrement()
             note = "left_side_exit_after_vehicle" if applied_left else "person_out"
             log_counter_event(label, "out", -1, people_count, track_key, source, note)
         else:
@@ -699,6 +815,55 @@ def handle_counting(payload: dict) -> None:
         mark_track_counted(track_key, "out")
 
     update_counters(people_count, vehicle_count)
+
+
+def fetch_snapshot() -> bytes | None:
+    endpoints = [
+        f"{FRIGATE_BASE_URL}/api/{FRIGATE_CAMERA}/latest.jpg",
+        f"{FRIGATE_BASE_URL}/api/{FRIGATE_CAMERA}/snapshot.jpg",
+    ]
+    for url in endpoints:
+        try:
+            response = requests.get(url, timeout=10)
+            if response.ok and response.content:
+                return response.content
+        except requests.RequestException as exc:
+            logger.warning("Snapshot fetch failed from %s: %s", url, exc)
+    return None
+
+
+def alert_loop() -> None:
+    while True:
+        try:
+            people_count, _ = get_counters()
+            gate_closed, _, _ = get_gate_state()
+            if people_count == 0 and gate_closed == 0:
+                last_sent = get_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN)
+                now = datetime.utcnow()
+                should_send = True
+                if last_sent:
+                    try:
+                        last_dt = datetime.fromisoformat(last_sent)
+                        should_send = (now - last_dt).total_seconds() >= ALERT_COOLDOWN_SECONDS
+                    except ValueError:
+                        should_send = True
+                if should_send:
+                    caption = (
+                        "CẢNH BÁO QUAN TRỌNG: Không có ai trong lán nhưng cửa cuốn chưa đóng\n"
+                        f"Thời gian: {now.isoformat()}\n"
+                        f"people_count={people_count}"
+                    )
+                    snapshot = fetch_snapshot()
+                    sent = False
+                    if snapshot:
+                        sent = send_telegram_photo(CHAT_ID_IMPORTANT, caption, snapshot)
+                    if not sent:
+                        send_telegram_message(CHAT_ID_IMPORTANT, caption)
+                    update_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN, now.isoformat())
+        except Exception as exc:
+            logger.warning("Alert loop error: %s", exc)
+        finally:
+            threading.Event().wait(CHECK_INTERVAL_SECONDS)
 
 
 def on_mqtt_message(client, userdata, msg):
@@ -778,6 +943,23 @@ async def telegram_webhook(
     plate_raw = parts[1] if len(parts) > 1 else ""
     plate_norm = normalize_plate(plate_raw)
 
+    if cmd in {"/gate_closed", "/gate_open", "/gate_status"}:
+        if cmd == "/gate_closed":
+            set_gate_state(1, user_label)
+            send_telegram_message(chat_id, "✅ Đã đặt trạng thái cửa: ĐÓNG")
+        elif cmd == "/gate_open":
+            set_gate_state(0, user_label)
+            send_telegram_message(chat_id, "✅ Đã đặt trạng thái cửa: MỞ")
+        else:
+            gate_closed, updated_at, updated_by = get_gate_state()
+            people_count, _ = get_counters()
+            status = "ĐÓNG" if gate_closed == 1 else "MỞ"
+            send_telegram_message(
+                chat_id,
+                f"Trạng thái cửa: {status}\nCập nhật: {updated_at} bởi {updated_by}\npeople_count={people_count}",
+            )
+        return {"ok": True}
+
     if cmd in {"/mine", "/staff", "/reject"} and not plate_norm:
         send_telegram_message(chat_id, "Thiếu biển số. Ví dụ: /mine 51A12345")
         return {"ok": True}
@@ -804,10 +986,13 @@ async def telegram_webhook(
 @app.get("/health")
 async def health():
     people_count, vehicle_count = get_counters()
+    gate_closed, _, _ = get_gate_state()
     return {
         "status": "ok",
         "people_count": people_count,
         "vehicle_count": vehicle_count,
+        "gate_closed": gate_closed,
+        "last_alert_time": get_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN),
         "active_exit_sessions": active_session_count(),
     }
 
@@ -816,6 +1001,8 @@ def main() -> None:
     init_db()
     mqtt_thread = threading.Thread(target=start_mqtt_loop, daemon=True)
     mqtt_thread.start()
+    alert_thread = threading.Thread(target=alert_loop, daemon=True)
+    alert_thread.start()
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 

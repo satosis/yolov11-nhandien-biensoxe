@@ -38,8 +38,8 @@ PLATE_MODEL_PATH = "./models/Speed_limit.pt"
 GENERAL_MODEL_PATH = "yolov8n.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
 LINE_Y = 300
-USE_WEBCAM = os.getenv("USE_WEBCAM", "false").lower() == "true"
 RTSP_URL = os.getenv("RTSP_URL", "rtsp://<USER>:<PASS>@<CAMERA_IP>:554/cam/realmonitor?channel=1&subtype=0")
+OCR_SOURCE = os.getenv("OCR_SOURCE", "rtsp").strip()
 SIGNAL_LOSS_TIMEOUT = 30
 
 # --- CẤU HÌNH PHÁT HIỆN CỬA (Brightness-based fallback) ---
@@ -393,19 +393,44 @@ notification_sent = False
 signal_loss_alerted = False
 tracked_ids = {}
 
-cap = cv2.VideoCapture(0 if USE_WEBCAM else RTSP_URL)
-if not cap.isOpened():
-    print("Lỗi kết nối Video.")
-    exit()
+def parse_ocr_source(source):
+    normalized = source.lower()
+    if normalized.startswith("image:") or normalized.startswith("image="):
+        image_path = source.split(":", 1)[1] if ":" in source else source.split("=", 1)[1]
+        return "image", image_path.strip()
+    if normalized in ("webcam", "camera", "local"):
+        return "webcam", 0
+    if normalized in ("rtsp", "ip", "network"):
+        return "rtsp", RTSP_URL
+    print(f"⚠️ OCR_SOURCE không hợp lệ: {source}. Dùng RTSP_URL mặc định.")
+    return "rtsp", RTSP_URL
+
+ocr_mode, ocr_payload = parse_ocr_source(OCR_SOURCE)
+cap = None
+image_frame = None
+if ocr_mode == "image":
+    image_frame = cv2.imread(ocr_payload)
+    if image_frame is None:
+        print(f"Lỗi đọc ảnh OCR: {ocr_payload}")
+        exit()
+else:
+    cap = cv2.VideoCapture(ocr_payload)
+    if not cap.isOpened():
+        print("Lỗi kết nối Video.")
+        exit()
 
 notify_telegram("Hệ thống cửa cuốn thông minh đã khởi động.", important=True)
 
 # --- MAIN LOOP ---
 while True:
-    ret, frame = cap.read()
+    if ocr_mode == "image":
+        ret = True
+        frame = image_frame.copy()
+    else:
+        ret, frame = cap.read()
     
     # Kiểm tra mất tín hiệu
-    if not ret:
+    if not ret and ocr_mode != "image":
         if not signal_loss_alerted and (time.time() - last_frame_time) > SIGNAL_LOSS_TIMEOUT:
             msg = "CẢNH BÁO: Mất tín hiệu camera quá 30 giây!"
             db.log_event("SIGNAL_LOSS", msg, truck_count, person_count)
@@ -539,6 +564,9 @@ while True:
     cv2.imshow("Smart Door System", frame)
     if (cv2.waitKey(1) & 0xFF) == ord(" "):
         break
+    if ocr_mode == "image":
+        break
 
-cap.release()
+if cap is not None:
+    cap.release()
 cv2.destroyAllWindows()

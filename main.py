@@ -1,6 +1,5 @@
 from ultralytics import YOLO
 import cv2
-import easyocr
 import logging
 import os
 import re
@@ -14,13 +13,12 @@ import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Thử import face_recognition (cần cài dlib)
+# Import face_recognition (cần cài dlib)
 try:
     import face_recognition
     FACE_RECOGNITION_AVAILABLE = True
 except ImportError:
     FACE_RECOGNITION_AVAILABLE = False
-    print("⚠️ face_recognition chưa cài đặt. Bỏ qua nhận diện khuôn mặt.")
 
 # Load môi trường
 load_dotenv()
@@ -35,7 +33,7 @@ USE_N8N = os.getenv("USE_N8N", "false").lower() == "true"
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
 PLATE_MODEL_PATH = "./models/Speed_limit.pt"
-GENERAL_MODEL_PATH = "yolov8n.pt"
+GENERAL_MODEL_PATH = "./models/yolo26n.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
 LINE_Y = 300
 RTSP_URL = os.getenv("RTSP_URL", "rtsp://<USER>:<PASS>@<CAMERA_IP>:554/cam/realmonitor?channel=1&subtype=0")
@@ -383,7 +381,11 @@ threading.Thread(target=telegram_bot_handler, daemon=True).start()
 # --- KHỞI TẠO MÔ HÌNH ---
 general_model = YOLO(GENERAL_MODEL_PATH)
 plate_model = YOLO(PLATE_MODEL_PATH)
-ocrReader = easyocr.Reader(['en', 'vi'], gpu=False)
+
+# PaddleOCR cho biển số VN 2 dòng
+from util.ocr_utils import VNPlateOCR
+plate_ocr = VNPlateOCR()
+print("✅ PaddleOCR initialized for Vietnamese plates")
 
 # --- BIẾN TRẠNG THÁI ---
 door_open = True
@@ -501,16 +503,15 @@ while True:
         elif name:
             cv2.putText(frame, name, (loc[3], loc[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    # 3. Nhận diện biển số (plate_model + EasyOCR)
+    # 3. Nhận diện biển số (plate_model + PaddleOCR)
     plate_results = plate_model(frame, verbose=False)
     for pr in plate_results:
         for pbox in pr.boxes:
             px1, py1, px2, py2 = map(int, pbox.xyxy[0])
             plate_crop = frame[py1:py2, px1:px2]
             if plate_crop.size > 0:
-                ocr_results = ocrReader.readtext(plate_crop, detail=0)
-                if ocr_results:
-                    plate_text = "".join(ocr_results)
+                plate_text = plate_ocr.read_plate(plate_crop)
+                if plate_text:
                     plate_norm = normalize_plate(plate_text)
                     if plate_norm:
                         is_auth, matched = check_plate(plate_text)

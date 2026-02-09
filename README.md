@@ -3,6 +3,7 @@
 Run everything with one command:
 
 ```bash
+chmod +x install.sh
 bash install.sh
 ```
 

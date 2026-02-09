@@ -26,6 +26,27 @@ apt_install() {
   sudo apt-get install -y "${packages[@]}"
 }
 
+install_python_deps() {
+  log "Installing Python dependencies..."
+  
+  # Install system deps for OpenCV, dlib, PaddleOCR
+  apt_install python3 python3-pip python3-venv \
+    libgl1-mesa-glx libglib2.0-0 \
+    cmake build-essential libboost-all-dev
+  
+  # Create venv if not exists
+  if [[ ! -d "${ROOT_DIR}/venv" ]]; then
+    python3 -m venv "${ROOT_DIR}/venv"
+    log "Created virtual environment."
+  fi
+  
+  source "${ROOT_DIR}/venv/bin/activate"
+  pip install --upgrade pip
+  pip install -r "${ROOT_DIR}/requirements.txt"
+  
+  log "Python dependencies installed."
+}
+
 install_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     log "Installing Docker..."
@@ -75,7 +96,11 @@ ensure_dirs() {
     "${DATA_DIR}/homeassistant" \
     "${DATA_DIR}/mosquitto" \
     "${DATA_DIR}/mosquitto-log" \
-    "${DATA_DIR}/event_bridge"
+    "${DATA_DIR}/event_bridge" \
+    "${ROOT_DIR}/models" \
+    "${ROOT_DIR}/config" \
+    "${ROOT_DIR}/config/faces" \
+    "${ROOT_DIR}/db"
 }
 
 ensure_env() {
@@ -161,6 +186,10 @@ main() {
   apt_install ca-certificates curl git jq sqlite3 unzip
 
   setup_timezone
+  
+  # Install Python dependencies
+  install_python_deps
+  
   install_docker
   ensure_docker_group
 
@@ -185,7 +214,7 @@ main() {
   enable_funnel_and_webhook
 
   local lan_ip
-  lan_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i==\"src\") print $(i+1)}' | head -n1)"
+  lan_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1)"
   if [[ -z "$lan_ip" ]]; then
     lan_ip="$(hostname -I | awk '{print $1}')"
   fi
@@ -209,6 +238,10 @@ EOF
   fi
 
   cat <<EOF
+
+Run standalone (without Docker):
+  source venv/bin/activate
+  python main.py
 
 Useful commands:
 - ./cmd logs event_bridge

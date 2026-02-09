@@ -1,6 +1,5 @@
 from ultralytics import YOLO
 import cv2
-import easyocr
 import logging
 import os
 import re
@@ -383,7 +382,15 @@ threading.Thread(target=telegram_bot_handler, daemon=True).start()
 # --- KHỞI TẠO MÔ HÌNH ---
 general_model = YOLO(GENERAL_MODEL_PATH)
 plate_model = YOLO(PLATE_MODEL_PATH)
-ocrReader = easyocr.Reader(['en', 'vi'], gpu=False)
+
+# Import VNPlateOCR for Vietnamese license plates
+try:
+    from util.ocr_utils import VNPlateOCR
+    plate_ocr = VNPlateOCR(use_gpu=False)
+    print("✅ PaddleOCR initialized for Vietnamese plates")
+except Exception as e:
+    plate_ocr = None
+    print(f"⚠️ PaddleOCR not available: {e}")
 
 # --- BIẾN TRẠNG THÁI ---
 door_open = True
@@ -482,10 +489,10 @@ while True:
         for pbox in pr.boxes:
             px1, py1, px2, py2 = map(int, pbox.xyxy[0])
             plate_crop = frame[py1:py2, px1:px2]
-            if plate_crop.size > 0:
-                ocr_results = ocrReader.readtext(plate_crop, detail=0)
-                if ocr_results:
-                    plate_text = "".join(ocr_results)
+            if plate_crop.size > 0 and plate_ocr is not None:
+                # Use VNPlateOCR for Vietnamese 2-line plates
+                plate_text = plate_ocr.read_plate(plate_crop)
+                if plate_text:
                     plate_norm = normalize_plate(plate_text)
                     if plate_norm:
                         is_auth, matched = check_plate(plate_text)

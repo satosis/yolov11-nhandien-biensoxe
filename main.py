@@ -24,7 +24,11 @@ except ImportError:
 load_dotenv()
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
-# --- CẤU HÌNH HỆ THỐNG ---
+import shutil
+import psutil
+import subprocess
+
+# --- 1. CONFIGURATION ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_IMPORTANT = os.getenv("CHAT_ID_IMPORTANT")
 CHAT_REGULAR = os.getenv("CHAT_ID_REGULAR")
@@ -209,6 +213,14 @@ class DatabaseManager:
         stats = cursor.fetchall()
         conn.close()
         return stats
+    
+    def get_pending_plates(self):
+        conn = sqlite3.connect(self.path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT plate_norm, plate_raw, first_seen_utc FROM pending_plates WHERE status = 'pending'")
+        pending = cursor.fetchall()
+        conn.close()
+        return pending
 
 db = DatabaseManager(DB_PATH)
 
@@ -244,7 +256,7 @@ def handle_telegram_command(text, chat_id, user_id):
         return
 
     # Lệnh duyệt biển số
-    if cmd in ["/staff", "/reject"]:
+    if cmd in ["/staff", "/reject", "/mine"]:
         if len(parts) < 2:
             notify_telegram(f"Lỗi: Thiếu biển số. VD: {cmd} 29A12345")
             return
@@ -252,7 +264,13 @@ def handle_telegram_command(text, chat_id, user_id):
         plate_raw = parts[1]
         plate_norm = normalize_plate(plate_raw)
         
-        if cmd == "/staff":
+        if cmd == "/mine":
+            if db.upsert_vehicle_whitelist(plate_norm, "mine", str(user_id)):
+                db.update_pending_status(plate_norm, "approved_mine", str(user_id))
+                notify_telegram(f"✅ Đã thêm {plate_norm} vào danh sách CỦA TÔI.")
+            else:
+                notify_telegram(f"⚠️ Lỗi khi thêm {plate_norm}.")
+        elif cmd == "/staff":
             if db.upsert_vehicle_whitelist(plate_norm, "staff", str(user_id)):
                 db.update_pending_status(plate_norm, "approved_staff", str(user_id))
                 notify_telegram(f"✅ Đã thêm {plate_norm} vào danh sách NHÂN VIÊN.")
@@ -262,6 +280,17 @@ def handle_telegram_command(text, chat_id, user_id):
         elif cmd == "/reject":
             db.update_pending_status(plate_norm, "rejected", str(user_id))
             notify_telegram(f"🚫 Đã từ chối biển số {plate_norm}.")
+    
+    # Lệnh xem các biển số đang chờ duyệt
+    if cmd == "/pending":
+        pending_plates = db.get_pending_plates()
+        if pending_plates:
+            msg = "Các biển số đang chờ duyệt:\n"
+            for plate_norm, plate_raw, first_seen_utc in pending_plates:
+                msg += f"- `{plate_norm}` (raw: {plate_raw}, từ: {first_seen_utc})\n"
+            notify_telegram(msg)
+        else:
+            notify_telegram("Không có biển số nào đang chờ duyệt.")
 
     # Lệnh duyệt khuôn mặt
     if cmd == "/staff_face":
@@ -285,6 +314,49 @@ def handle_telegram_command(text, chat_id, user_id):
                 notify_telegram(f"⚠️ Lỗi khi lưu ảnh: {e}")
         else:
             notify_telegram(f"⚠️ Không tìm thấy ảnh tạm: {face_id}")
+    
+    # Lệnh dọn dẹp
+    if cmd == "/cleanup":
+        if len(parts) < 2:
+            notify_telegram("Lỗi cú pháp: /cleanup [faces|active_learning|db]")
+            return
+        
+        target = parts[1].lower()
+        if target == "faces":
+            try:
+                if os.path.exists(FACES_DIR):
+                    shutil.rmtree(FACES_DIR)
+                    os.makedirs(FACES_DIR)
+                    notify_telegram("✅ Đã dọn dẹp thư mục khuôn mặt.")
+                    load_faces() # Reload empty list
+                else:
+                    notify_telegram("Thư mục khuôn mặt không tồn tại.")
+            except Exception as e:
+                notify_telegram(f"⚠️ Lỗi khi dọn dẹp khuôn mặt: {e}")
+        elif target == "active_learning":
+            try:
+                al_dir = "./data/active_learning"
+                if os.path.exists(al_dir):
+                    shutil.rmtree(al_dir)
+                    os.makedirs(al_dir)
+                    notify_telegram("✅ Đã dọn dẹp thư mục active learning.")
+                else:
+                    notify_telegram("Thư mục active learning không tồn tại.")
+            except Exception as e:
+                notify_telegram(f"⚠️ Lỗi khi dọn dẹp active learning: {e}")
+        elif target == "db":
+            try:
+                if os.path.exists(DB_PATH):
+                    os.remove(DB_PATH)
+                    db.init_db() # Re-initialize empty DB
+                    notify_telegram("✅ Đã dọn dẹp cơ sở dữ liệu.")
+                else:
+                    notify_telegram("Tệp cơ sở dữ liệu không tồn tại.")
+            except Exception as e:
+                notify_telegram(f"⚠️ Lỗi khi dọn dẹp cơ sở dữ liệu: {e}")
+        else:
+            notify_telegram("⚠️ Mục tiêu dọn dẹp không hợp lệ. Chọn: faces, active_learning, db.")
+
 
 def load_faces():
     global authorized_face_encodings, authorized_face_names
@@ -307,26 +379,74 @@ def load_faces():
 
 # --- MJPEG STREAMER INIT ---
 from core.mjpeg_streamer import MJPEGStreamer
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, Response
-import uvicorn
-
-streamer = MJPEGStreamer()
-app = FastAPI()
-
-@app.get("/video_feed")
-def video_feed():
-    return StreamingResponse(streamer.generate(), media_type="multipart/x-mixed-replace; boundary=frame")
-
-@app.get("/snapshot")
-def snapshot():
-    data = streamer.get_snapshot()
-    if data:
-        return Response(content=data, media_type="image/jpeg")
-    return Response(status_code=503)
-
 def start_api_server():
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+
+@app.get("/")
+def dashboard():
+    """Trang chủ Dashboard đơn giản"""
+    from fastapi.responses import HTMLResponse
+    html_content = """
+    <html>
+        <head>
+            <title>Smart Door Monitoring Dashboard</title>
+            <style>
+                body { font-family: sans-serif; background: #121212; color: white; text-align: center; }
+                .container { display: flex; flex-direction: column; align-items: center; margin-top: 20px; }
+                img { border: 5px solid #333; border-radius: 10px; max-width: 90%; }
+                .stats { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: 60%; }
+                .card { background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
+                h1 { color: #00e676; }
+                .logs { width: 80%; background: #222; margin-top: 30px; text-align: left; padding: 20px; border-radius: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>🚪 Smart Door AI Dashboard</h1>
+            <div class="container">
+                <img src="/video_feed" alt="Live View">
+                <div class="stats" id="stats-container">
+                    <div class="card"><h3>Người</h3><p id="p-count">0</p></div>
+                    <div class="card"><h3>Xe Tải</h3><p id="t-count">0</p></div>
+                    <div class="card"><h3>Cửa</h3><p id="door-status">Đang tải...</p></div>
+                </div>
+                <div class="logs">
+                    <h3>Hoạt động gần đây:</h3>
+                    <ul id="log-list"></ul>
+                </div>
+            </div>
+            <script>
+                async function update() {
+                    const res = await fetch('/api/status');
+                    const data = await res.json();
+                    document.getElementById('p-count').innerText = data.people;
+                    document.getElementById('t-count').innerText = data.trucks;
+                    document.getElementById('door-status').innerText = data.door ? "🔓 MỞ" : "🔒 ĐÓNG";
+                    
+                    const logList = document.getElementById('log-list');
+                    logList.innerHTML = data.recent_logs.map(l => `<li>[${l[0]}] <b>${l[1]}</b>: ${l[2]}</li>`).join('');
+                }
+                setInterval(update, 2000);
+            </script>
+        </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.get("/api/status")
+def get_api_status():
+    """API lấy trạng thái hệ thống cho Dashboard"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT timestamp, event_type, description FROM events ORDER BY id DESC LIMIT 5")
+    logs = cursor.fetchall()
+    conn.close()
+    
+    return {
+        "people": person_count,
+        "trucks": truck_count,
+        "door": door_open,
+        "recent_logs": logs
+    }
 
 def telegram_polling_loop():
     """Vòng lặp nhận tin nhắn từ Telegram"""
@@ -365,6 +485,40 @@ def telegram_polling_loop():
         except Exception as e:
             print(f"Telegram polling error: {e}")
             time.sleep(5)
+
+# --- SYSTEM MONITORING ---
+def get_cpu_temp():
+    try:
+        # For Raspberry Pi / Linux
+        result = subprocess.run(['vcgencmd', 'measure_temp'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return float(result.stdout.split('=')[1].split('\'')[0])
+        # For other Linux systems
+        with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+            return int(f.read()) / 1000.0
+    except (FileNotFoundError, IndexError, ValueError):
+        return None
+
+def system_monitor_loop():
+    while True:
+        cpu_percent = psutil.cpu_percent(interval=1)
+        mem_info = psutil.virtual_memory()
+        disk_info = psutil.disk_usage('/')
+        
+        temp = get_cpu_temp()
+        temp_str = f"{temp:.1f}°C" if temp else "N/A"
+
+        # print(f"CPU: {cpu_percent:.1f}% | RAM: {mem_info.percent:.1f}% | Disk: {disk_info.percent:.1f}% | Temp: {temp_str}")
+        
+        # Gửi cảnh báo nếu CPU/RAM/Disk quá cao
+        if cpu_percent > 90:
+            notify_telegram(f"CẢNH BÁO: CPU đang ở mức cao: {cpu_percent:.1f}%", important=True)
+        if mem_info.percent > 90:
+            notify_telegram(f"CẢNH BÁO: RAM đang ở mức cao: {mem_info.percent:.1f}%", important=True)
+        if disk_info.percent > 90:
+            notify_telegram(f"CẢNH BÁO: Đĩa cứng đầy: {disk_info.percent:.1f}%", important=True)
+
+        time.sleep(60) # Kiểm tra mỗi 1 phút
 
 # --- FACE/PLATE MATCHING ---
 def check_face(frame):
@@ -460,14 +614,37 @@ def telegram_bot_handler():
                     user = msg.get("from", {})
                     user_label = user.get("username") or str(user.get("id") or "unknown")
 
-                    if text == "/stats":
+                    if cmd == "/stats":
                         rows = db.get_stats()
                         stat_text = "📊 Thống kê hôm nay:\n"
                         for row in rows:
                             stat_text += f"- {row[1]}: {row[0]} lần\n"
                         stat_text += f"\nHiện tại: {truck_count} xe, {person_count} người."
+                        
+                        # Thêm thông tin hệ thống
+                        temp = get_cpu_temp()
+                        temp_str = f"{temp:.1f}°C" if temp else "N/A"
+                        disk = psutil.disk_usage('/')
+                        stat_text += f"\n\n🖥 Hệ thống:\n- Temp: {temp_str}\n- Disk: {disk.percent}%"
+                        
                         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                                       json={"chat_id": chat_id, "text": stat_text})
+                        continue
+
+                    if cmd == "/sys":
+                        # Alias for /stats system part
+                        notify_telegram(f"🖥 Hệ thống: {get_cpu_temp():.1f}°C | Disk: {psutil.disk_usage('/').percent}%")
+                        continue
+
+                    if cmd == "/cleanup":
+                        try:
+                            al_dir = "./data/active_learning"
+                            if os.path.exists(al_dir):
+                                shutil.rmtree(al_dir)
+                                os.makedirs(al_dir)
+                            notify_telegram("✅ Đã dọn dẹp bộ nhớ đệm (Active Learning).")
+                        except Exception as e:
+                            notify_telegram(f"⚠️ Lỗi: {e}")
                         continue
 
                     if not text or not text.startswith("/"):
@@ -525,6 +702,11 @@ from util.ocr_utils import VNPlateOCR
 plate_ocr = VNPlateOCR()
 print("✅ PaddleOCR initialized for Vietnamese plates")
 
+# Modify ocr_plate to return text and probability
+def ocr_plate(image):
+    text, prob = plate_ocr.read_plate_with_prob(image) # Assuming read_plate_with_prob exists or needs to be added
+    return text, prob
+
 # --- BIẾN TRẠNG THÁI ---
 from core.door_controller import DoorController
 from core.mqtt_manager import MQTTManager
@@ -538,9 +720,14 @@ print("✅ MQTT Manager started")
 tele_thread = threading.Thread(target=telegram_polling_loop, daemon=True)
 tele_thread.start()
 
-# Start API Server
-api_thread = threading.Thread(target=start_api_server, daemon=True)
-api_thread.start()
+    # Bắt đầu API Server
+threading.Thread(target=start_api_server, daemon=True).start()
+    
+    # Bắt đầu Monitoring Thread
+threading.Thread(target=system_monitor_loop, daemon=True).start()
+
+print("🚀 Smart Door System STARTED.")
+# api_thread.start() # This line is redundant after the above change
 print("✅ API Server started at http://0.0.0.0:8000/video_feed")
 
 door_open = True
@@ -601,6 +788,9 @@ while True:
     
     # 1. Nhận diện người/xe tải (YOLOv26n)
     results = general_model.track(frame, persist=True, verbose=False)
+    
+    # Active Learning: Lưu ảnh nếu độ tin cậy thấp
+    save_active_learning = False
 
     for r in results:
         for bbox in r.boxes:
@@ -684,9 +874,19 @@ while True:
     for pr in plate_results:
         for pbox in pr.boxes:
             px1, py1, px2, py2 = map(int, pbox.xyxy[0])
-            plate_crop = frame[py1:py2, px1:px2]
-            if plate_crop.size > 0:
-                plate_text = plate_ocr.read_plate(plate_crop)
+            cls = int(pbox.cls[0]) # Extract class for plate detection
+            # OCR Biển số
+            if cls == 1: # Giả sử class 1 là license_plate
+                plate_crop = frame[py1:py2, px1:px2]
+                if plate_crop.size > 0:
+                    plate_text, prob = ocr_plate(plate_crop)
+                    
+                    # Nếu nhận diện biển số với độ tin cậy thấp (< 0.7) -> Lưu Active Learning
+                    if prob < 0.7 and plate_text:
+                        save_path = f"./data/active_learning/plate_{int(time.time())}.jpg"
+                        os.makedirs("./data/active_learning", exist_ok=True)
+                        cv2.imwrite(save_path, plate_crop)
+                        print(f"📀 Saved Active Learning sample: {plate_text} ({prob:.2f})")
                 if plate_text:
                     plate_norm = normalize_plate(plate_text)
                     if plate_norm:

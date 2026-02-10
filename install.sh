@@ -106,6 +106,16 @@ main() {
   ensure_dirs
   ensure_env
 
+  # Check and optimize model
+  MODEL_PATH="${ROOT_DIR}/models/yolo26n.pt"
+  if [[ -f "$MODEL_PATH" ]]; then
+      log "Found yolo26n.pt, optimizing to ONNX..."
+      python3 "${DEPLOY_DIR}/utils/export_model.py" "$MODEL_PATH" "onnx"
+  else
+      log "⚠️  No yolo26n.pt found in models/. Skipped optimization."
+      log "👉 Please copy your trained model to: ${MODEL_PATH}"
+  fi
+
   log "Installation complete!"
   echo ""
   echo "Run the application:"

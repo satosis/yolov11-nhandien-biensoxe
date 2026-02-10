@@ -95,30 +95,30 @@ class VNPlateOCR:
         
         return top, bottom
 
-    def ocr_image(self, img: np.ndarray) -> str:
-        """OCR một ảnh đơn."""
+    def ocr_image(self, img: np.ndarray) -> tuple:
+        """OCR một ảnh đơn. Trả về (text, prob)"""
         if img is None or img.size == 0:
-            return ""
+            return "", 0.0
         
         # Chuyển sang BGR nếu là grayscale
         if len(img.shape) == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         
-        # PaddleOCR 3.x dùng predict()
-        results = list(self.ocr.predict(img))
+        # PaddleOCR dùng ocr() hoặc predict(). Trong script này dùng ocr([..., det=True, rec=True, cls=True])
+        # PaddleOCR mặc định truyền list các boxes: [ [ [coords], (text, score) ], ... ]
+        result = self.ocr.ocr(img, det=True, rec=True, cls=True)
         
-        if not results:
-            return ""
+        if not result or not result[0]:
+            return "", 0.0
         
-        # Parse kết quả PaddleOCR 3.x
         texts = []
-        for result in results:
-            if hasattr(result, 'rec_texts') and result.rec_texts:
-                texts.extend(result.rec_texts)
-            elif isinstance(result, dict) and 'rec_texts' in result:
-                texts.extend(result['rec_texts'])
+        scores = []
+        for line in result[0]:
+            texts.append(line[1][0])
+            scores.append(line[1][1])
         
-        return "".join(texts)
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+        return "".join(texts), avg_score
 
     def normalize_result(self, text: str) -> str:
         """Chuẩn hóa kết quả OCR."""
@@ -142,6 +142,33 @@ class VNPlateOCR:
                 result.append(char)
         
         return "".join(result)
+
+    def read_plate_with_prob(self, plate_img: np.ndarray, preprocess: bool = True) -> tuple:
+        """
+        Đọc biển số xe kèm theo độ tin cậy.
+        Trả về: (biển_số_chuẩn_hóa, độ_tin_cậy_trung_bình)
+        """
+        if plate_img is None or plate_img.size == 0:
+            return "", 0.0
+        
+        if self.is_two_line_plate(plate_img):
+            top, bottom = self.segment_two_line(plate_img)
+            if preprocess:
+                top = self.preprocess(top)
+                bottom = self.preprocess(bottom)
+            
+            t1, s1 = self.ocr_image(top)
+            t2, s2 = self.ocr_image(bottom)
+            combined_text = self.normalize_result(t1 + t2)
+            avg_score = (s1 + s2) / 2
+        else:
+            if preprocess:
+                plate_img = self.preprocess(plate_img)
+            t, s = self.ocr_image(plate_img)
+            combined_text = self.normalize_result(t)
+            avg_score = s
+            
+        return combined_text, avg_score
 
     def read_plate(self, plate_img: np.ndarray, preprocess: bool = True) -> str:
         """

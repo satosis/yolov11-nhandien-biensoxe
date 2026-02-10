@@ -2,6 +2,18 @@ default_config:
 
 mqtt:
   discovery: true
+  cover:
+    - name: "Cửa cuốn kho"
+      unique_id: shed_garage_door
+      device_class: garage
+      state_topic: "shed/state/door"
+      command_topic: "shed/cmd/door"
+      payload_open: "OPEN"
+      payload_close: "CLOSE"
+      payload_stop: "STOP"
+      state_open: "open"
+      state_closed: "closed"
+      optimistic: false
 
 lovelace:
   mode: yaml

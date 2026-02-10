@@ -12,3 +12,55 @@
       data:
         topic: shed/cmd/view_heartbeat
         payload: "1"
+
+- id: auto_open_tuya
+  alias: "Mở cửa Tuya khi có biển số hợp lệ"
+  trigger:
+    - platform: mqtt
+      topic: "shed/trigger/open"
+  action:
+    - service: cover.open_cover
+      target:
+        entity_id: cover.garage_door # Cần đổi lại ID này nếu khác
+    - service: notify.mobile_app
+      data:
+        message: "Mở cửa tự động (Biển số hợp lệ)"
+      entity_id: sensor.shed_people_count
+      to: "0"
+      for: "00:05:00"
+  condition:
+    - condition: state
+      entity_id: cover.cua_cuon_kho
+      state: "open"
+  action:
+    - service: cover.close_cover
+      target:
+        entity_id: cover.cua_cuon_kho
+    - service: persistent_notification.create
+      data:
+        title: "Cửa cuốn"
+        message: "Cửa đã tự động đóng - Không có người 5 phút"
+
+- id: notify_door_opened
+  alias: "Thông báo khi cửa mở"
+  trigger:
+    - platform: state
+      entity_id: cover.cua_cuon_kho
+      to: "open"
+  action:
+    - service: persistent_notification.create
+      data:
+        title: "Cửa cuốn"
+        message: "Cửa cuốn đã MỞ"
+
+- id: notify_door_closed
+  alias: "Thông báo khi cửa đóng"
+  trigger:
+    - platform: state
+      entity_id: cover.cua_cuon_kho
+      to: "closed"
+  action:
+    - service: persistent_notification.create
+      data:
+        title: "Cửa cuốn"
+        message: "Cửa cuốn đã ĐÓNG"

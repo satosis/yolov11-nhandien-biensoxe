@@ -8,3 +8,9 @@ requests
 face_recognition
 cmake
 dlib
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+paho-mqtt==2.1.0
+onvif-zeep==0.2.12
+OPi.GPIO
+tinytuya

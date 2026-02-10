@@ -65,6 +65,16 @@ ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
 EVENT_BRIDGE_TEST_MODE = os.getenv("EVENT_BRIDGE_TEST_MODE", "0") == "1"
 ONVIF_SIMULATE_FAIL = os.getenv("ONVIF_SIMULATE_FAIL", "0") == "1"
 
+# Relay control for garage door
+# Relay control for garage door
+RELAY_TYPE = "gpio"
+RELAY_HTTP_URL = ""
+RELAY_GPIO_PIN = 11  # Orange Pi 4 Pro (Physical Pin 11)
+
+# Door state
+door_state_lock = threading.Lock()
+door_state = "closed"  # open, closed, opening, closing
+
 ALERT_KEY_NO_ONE_GATE_OPEN = "no_one_gate_open"
 
 STATE_TOPICS = {
@@ -74,6 +84,7 @@ STATE_TOPICS = {
     "ptz_mode": "shed/state/ptz_mode",
     "ocr_enabled": "shed/state/ocr_enabled",
     "last_view_utc": "shed/state/last_view_utc",
+    "door": "shed/state/door",
 }
 
 COMMAND_TOPICS = {
@@ -82,6 +93,7 @@ COMMAND_TOPICS = {
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/view_heartbeat",
+    "shed/cmd/door",
 }
 
 app = FastAPI()
@@ -516,6 +528,10 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
+    
+    with door_state_lock:
+        current_door_state = door_state
+    mqtt_publish(STATE_TOPICS["door"], current_door_state)
 
 
 def get_ptz_state() -> dict:
@@ -1721,12 +1737,56 @@ def alert_loop() -> None:
             threading.Event().wait(CHECK_INTERVAL_SECONDS)
 
 
+def control_door(action: str) -> None:
+    """Control garage door relay: OPEN, CLOSE, STOP"""
+    global door_state
+    logger.info("Controlling door: %s (Type: %s)", action, RELAY_TYPE)
+
+    if RELAY_TYPE == "gpio":
+        try:
+            import OPi.GPIO as GPIO
+            # Setup GPIO (BOARD or BCM - Orange Pi usually BOARD or SUNXI)
+            GPIO.setmode(GPIO.BOARD) 
+            GPIO.setup(RELAY_GPIO_PIN, GPIO.OUT)
+            
+            # Pulse logic for garage door (Toggle)
+            GPIO.output(RELAY_GPIO_PIN, GPIO.HIGH)
+            threading.Event().wait(0.5)  # 0.5s pulse
+            GPIO.output(RELAY_GPIO_PIN, GPIO.LOW)
+            
+            GPIO.cleanup()
+        except ImportError:
+            logger.error("OPi.GPIO not installed. Run: pip install OPi.GPIO")
+        except Exception as exc:
+            logger.error("GPIO control failed: %s", exc)
+
+    elif RELAY_TYPE == "tasmota":
+        if RELAY_HTTP_URL:
+            try:
+                # Assumes simple toggle for garage door
+                requests.get(f"{RELAY_HTTP_URL}/cm?cmnd=Power%20TOGGLE", timeout=2)
+            except Exception as exc:
+                logger.error("Tasmota control failed: %s", exc)
+
+    # Simulating state change for UI feedback
+    with door_state_lock:
+        if action == "OPEN":
+            door_state = "open"
+        elif action == "CLOSE":
+            door_state = "closed"
+        
+        mqtt_publish(STATE_TOPICS["door"], door_state)
+
+
 def handle_mqtt_command(topic: str, payload: str) -> None:
     if topic == "shed/cmd/gate_open":
         set_gate_state(0, "ha")
         return
     if topic == "shed/cmd/gate_closed":
         set_gate_state(1, "ha")
+        return
+    if topic == "shed/cmd/door":
+        control_door(payload)
         return
     if topic == "shed/cmd/ptz_panorama":
         if ptz_goto_preset(ONVIF_PRESET_PANORAMA):

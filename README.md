@@ -1,106 +1,97 @@
-# OCR + Frigate Stack (Orange Pi)
+# Hệ Thống Nhận Diện Biển Số & Camera AI (Orange Pi)
 
-Run everything with one command:
+Chạy toàn bộ hệ thống bằng một lệnh:
 
 ```bash
 chmod +x install.sh
-bash install.sh
+./install.sh
 ```
 
-## Configure secrets
-Edit `.env` (created from `.env.example` on first install):
-
-```
-TELEGRAM_TOKEN=
-TELEGRAM_CHAT_IMPORTANT=
-TELEGRAM_CHAT_NONIMPORTANT=
-TELEGRAM_WEBHOOK_SECRET_PATH=
-TELEGRAM_SECRET_TOKEN=
+Sau khi cài đặt xong, chạy ứng dụng:
+```bash
+source venv/bin/activate
+python main.py
 ```
 
-## Frigate RTSP config
-Edit `./deploy/frigate/config.yml` and replace the RTSP placeholders for main/sub streams.
+## Mô hình AI
+Hệ thống sử dụng model `models/yolo26n.pt` cho cả nhận diện vật thể và biển số, tối ưu hóa cho tốc độ trên thiết bị biên.
 
-## Counting heuristic (vehicle exit + people)
-- When a vehicle exits, `vehicle_count` is decremented and `people_count` is immediately decremented by 1 (driver on the right side).
-- A short window then allows extra person exits to be subtracted (left side) up to a configurable cap.
+## Cấu hình Bảo mật
+Sửa file `.env` (được tạo từ `.env.example` sau khi chạy install):
 
-Tune in `.env`:
-- `LEFT_EXIT_WINDOW_SECONDS` (default 30)
-- `LEFT_EXIT_MAX_EXTRA_PEOPLE` (default 2)
-- `MAX_ACTIVE_VEHICLE_EXIT_SESSIONS` (default 2)
-- `VIRTUAL_GATE_LINE_X`, `INSIDE_SIDE`, `GATE_DEBOUNCE_UPDATES`, `TRACK_TTL_SECONDS`
+```
+TELEGRAM_BOT_TOKEN=
+CHAT_ID_IMPORTANT=
+CHAT_ID_REGULAR=
+RTSP_URL=
+OCR_SOURCE=
+```
 
-## Gate commands (Telegram)
-Use in group chat:
-- `/gate_closed` -> set gate closed
-- `/gate_open` -> set gate open
-- `/gate_status` -> show gate state + people_count
+## Cấu hình Camera RTSP
+Sửa trong `.env`:
+- `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera.
+- `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
 
-Alert rule: when `people_count == 0` and gate is open, an IMPORTANT alert is sent with a snapshot (cooldown via `ALERT_COOLDOWN_SECONDS`).
+## Tính năng Đếm Người & Xe
+- Hệ thống tự động đếm số lượng người và xe tải ra/vào.
+- Logic "Gate Logic": Tự động trừ số người khi có xe đi ra (tài xế).
+- Các tham số tinh chỉnh trong `.env`:
+  - `LEFT_EXIT_WINDOW_SECONDS`: Thời gian chờ cửa sổ thoát.
+  - `MAX_ACTIVE_VEHICLE_EXIT_SESSIONS`: Số phiên xe hoạt động tối đa.
 
-## Driver attribution (heuristic)
-- When a vehicle IN/OUT is detected, the system links it to the most recent person IN/OUT within `DRIVER_LINK_WINDOW_SECONDS`.
-- If no person event is nearby, it records `unknown_person`.
-- Duplicate attributions for the same person/vehicle/direction within `DEDUPE_SECONDS` are collapsed.
+## Lệnh Telegram (Quản lý)
+Sử dụng trong nhóm chat:
+- `/gate_closed`: Đặt trạng thái cửa là ĐÓNG.
+- `/gate_open`: Đặt trạng thái cửa là MỞ.
+- `/gate_status`: Xem trạng thái cửa + số người/xe.
+- `/report`: Xem báo cáo nhanh.
 
-## Monthly reports
-- Text report:
+## Báo cáo Tháng
+- Báo cáo dạng văn bản:
   ```bash
   ./cmd report-month YYYY-MM
   ```
-- Chart (PNG under `./data/event_bridge/reports/`):
+- Biểu đồ (PNG lưu tại `./data/event_bridge/reports/`):
   ```bash
   ./cmd chart-month YYYY-MM
   ```
 
-## Home Assistant
-Open:
-- http://<pi-ip>:8123
+## Home Assistant (Tích hợp Nhà thông minh)
+Truy cập: `http://<IP_ORANGE_PI>:8123`
 
-Install the Home Assistant iOS app, add the Frigate integration via UI, then add camera + events cards.
+Tích hợp sẵn:
+- **Tuya Integration**: Điều khiển cửa cuốn tự động.
+- **MQTT Discovery**: Tự động nhận diện cảm biến.
+  - `sensor.shed_people_count`: Đếm người.
+  - `sensor.shed_vehicle_count`: Đếm xe.
+  - `cover.garage_door`: Điều khiển cửa cuốn.
 
-Home Assistant entities (MQTT discovery):
-- `sensor.shed_people_count`, `sensor.shed_vehicle_count`
-- `binary_sensor.shed_gate_closed`
-- `button.shed_gate_open`, `button.shed_gate_closed`
-- `button.shed_ptz_panorama`, `button.shed_ptz_gate`
-- `sensor.shed_ptz_mode`, `binary_sensor.shed_ocr_enabled`
+### Tự động hóa (Automation)
+- Tự động mở cửa Tuya khi nhận diện biển số xe quen (`whitelist`).
+- Tự động đóng cửa sau 5 phút nếu không có người.
 
-Monthly report image:
-- `./cmd chart-month YYYY-MM` copies the PNG to `./data/homeassistant/www/reports/`
-- Lovelace uses `/local/reports/trips_YYYY-MM.png`
-
-## PTZ presets (IMOU 360 PTZ)
-Set these in `.env` to enable PTZ control from Home Assistant:
+## Điều khiển PTZ (Camera xoay 360)
+Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`
-- `ONVIF_PRESET_GATE` (gate view preset)
-- `ONVIF_PRESET_PANORAMA` (panorama view preset)
-- Optional: `ONVIF_PROFILE_TOKEN` (if your camera exposes multiple profiles)
+- `ONVIF_PRESET_GATE`: Vị trí soi cổng.
+- `ONVIF_PRESET_PANORAMA`: Vị trí toàn cảnh.
 
-Behavior:
-- Panorama mode disables OCR in `event_bridge`.
-- If no viewer heartbeat is received for `PTZ_AUTO_RETURN_SECONDS`, the camera auto-returns to Gate view and OCR re-enables.
-- Home Assistant sends heartbeats every `HEARTBEAT_INTERVAL_SECONDS` (default 30) while in panorama mode.
+Hành vi:
+- Khi chuyển sang toàn cảnh, OCR tạm dừng.
+- Tự động quay về vị trí cổng sau `PTZ_AUTO_RETURN_SECONDS` giây.
 
-## Ops commands
-```
-./cmd stats
-./cmd today
-./cmd last 50
-./cmd pending
-./cmd whitelist
-./cmd counters
-./cmd sessions
-./cmd counter_events
-./cmd gate
-./cmd alerts
-./cmd report-month YYYY-MM
-./cmd chart-month YYYY-MM
-./cmd test-ptz [--fast]
+## Các lệnh vận hành (trong thư mục dự án)
+```bash
+./cmd stats         # Xem thống kê
+./cmd today         # Xem sự kiện hôm nay
+./cmd last 50       # 50 sự kiện gần nhất
+./cmd pending       # Danh sách biển số lạ chờ duyệt
+./cmd whitelist     # Danh sách biển số quen
+./cmd gate          # Trạng thái cổng
+./cmd test-ptz      # Test tính năng xoay camera
 ```
 
-## Troubleshooting
-- RTSP issues: verify camera IP/user/pass and main/sub stream paths.
-- MQTT issues: check `mosquitto` container logs.
-- event_bridge issues: `./cmd logs event_bridge`.
+## Xử lý sự cố (Troubleshooting)
+- **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
+- **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
+- **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

@@ -28,11 +28,11 @@ logging.getLogger("ultralytics").setLevel(logging.WARNING)
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_IMPORTANT = os.getenv("CHAT_ID_IMPORTANT")
 CHAT_REGULAR = os.getenv("CHAT_ID_REGULAR")
-DB_PATH = os.getenv("DATABASE_PATH", "/db/door_events.db")
+DB_PATH = os.getenv("DATABASE_PATH", "./db/door_events.db")
 USE_N8N = os.getenv("USE_N8N", "false").lower() == "true"
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-PLATE_MODEL_PATH = "./models/Speed_limit.pt"
+PLATE_MODEL_PATH = "./models/yolo26n.pt"
 GENERAL_MODEL_PATH = "./models/yolo26n.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
 LINE_Y = 300
@@ -228,6 +228,144 @@ def notify_telegram(message, important=False):
     except Exception as e:
         print(f"Lỗi gửi Telegram: {e}")
 
+def handle_telegram_command(text, chat_id, user_id):
+    """Xử lý lệnh từ Telegram"""
+    parts = text.strip().split()
+    if not parts:
+        return
+    
+    cmd = parts[0].lower()
+    
+    # Lệnh mở/đóng cửa
+    if cmd == "/open":
+        print(f"Telegram CMD: OPEN from {user_id}")
+        mqtt_manager.publish_trigger_open()
+        notify_telegram(f"Đã gửi lệnh MỞ cửa theo yêu cầu của {user_id}")
+        return
+
+    # Lệnh duyệt biển số
+    if cmd in ["/staff", "/reject"]:
+        if len(parts) < 2:
+            notify_telegram(f"Lỗi: Thiếu biển số. VD: {cmd} 29A12345")
+            return
+        
+        plate_raw = parts[1]
+        plate_norm = normalize_plate(plate_raw)
+        
+        if cmd == "/staff":
+            if db.upsert_vehicle_whitelist(plate_norm, "staff", str(user_id)):
+                db.update_pending_status(plate_norm, "approved_staff", str(user_id))
+                notify_telegram(f"✅ Đã thêm {plate_norm} vào danh sách NHÂN VIÊN.")
+            else:
+                notify_telegram(f"⚠️ Lỗi khi thêm {plate_norm}.")
+                
+        elif cmd == "/reject":
+            db.update_pending_status(plate_norm, "rejected", str(user_id))
+            notify_telegram(f"🚫 Đã từ chối biển số {plate_norm}.")
+
+    # Lệnh duyệt khuôn mặt
+    if cmd == "/staff_face":
+        if len(parts) < 3:
+            notify_telegram("Lỗi cú pháp: /staff_face [ID_TAM] [TEN_NHAN_VIEN]")
+            return
+        
+        face_id = parts[1]
+        staff_name = parts[2].replace(" ", "_")
+        
+        temp_path = f"./config/faces/temp/{face_id}.jpg"
+        target_path = f"./config/faces/{staff_name}.jpg"
+        
+        if os.path.exists(temp_path):
+            try:
+                os.rename(temp_path, target_path)
+                notify_telegram(f"✅ Đã thêm nhân viên: {staff_name}")
+                # Reload faces
+                load_faces()
+            except Exception as e:
+                notify_telegram(f"⚠️ Lỗi khi lưu ảnh: {e}")
+        else:
+            notify_telegram(f"⚠️ Không tìm thấy ảnh tạm: {face_id}")
+
+def load_faces():
+    global authorized_face_encodings, authorized_face_names
+    authorized_face_encodings = []
+    authorized_face_names = []
+    if FACE_RECOGNITION_AVAILABLE and os.path.exists(FACES_DIR):
+        for filename in os.listdir(FACES_DIR):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                filepath = os.path.join(FACES_DIR, filename)
+                try:
+                    img = face_recognition.load_image_file(filepath)
+                    encodings = face_recognition.face_encodings(img)
+                    if encodings:
+                        authorized_face_encodings.append(encodings[0])
+                        name = os.path.splitext(filename)[0].replace("_", " ")
+                        authorized_face_names.append(name)
+                except Exception as e:
+                    print(f"Lỗi load face {filename}: {e}")
+    print(f"✅ Reloaded {len(authorized_face_names)} authorized faces")
+
+# --- MJPEG STREAMER INIT ---
+from core.mjpeg_streamer import MJPEGStreamer
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse, Response
+import uvicorn
+
+streamer = MJPEGStreamer()
+app = FastAPI()
+
+@app.get("/video_feed")
+def video_feed():
+    return StreamingResponse(streamer.generate(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+@app.get("/snapshot")
+def snapshot():
+    data = streamer.get_snapshot()
+    if data:
+        return Response(content=data, media_type="image/jpeg")
+    return Response(status_code=503)
+
+def start_api_server():
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+
+def telegram_polling_loop():
+    """Vòng lặp nhận tin nhắn từ Telegram"""
+    if not TOKEN:
+        return
+        
+    last_update_id = 0
+    print("🤖 Telegram Bot listening...")
+    
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+            params = {"offset": last_update_id + 1, "timeout": 30}
+            resp = requests.get(url, params=params, timeout=40)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    for update in data.get("result", []):
+                        last_update_id = update["update_id"]
+                        
+                        # Chỉ xử lý tin nhắn văn bản
+                        if "message" in update and "text" in update["message"]:
+                            msg = update["message"]
+                            text = msg["text"]
+                            chat_id = msg["chat"]["id"]
+                            user_id = msg["from"]["id"]
+                            
+                            # Log tin nhắn đến
+                            # print(f"Tele msg: {text} from {user_id}")
+                            
+                            if str(chat_id) in [CHAT_IMPORTANT, CHAT_REGULAR]:
+                                handle_telegram_command(text, chat_id, user_id)
+            
+            time.sleep(1)
+        except Exception as e:
+            print(f"Telegram polling error: {e}")
+            time.sleep(5)
+
 # --- FACE/PLATE MATCHING ---
 def check_face(frame):
     """Nhận diện khuôn mặt và kiểm tra trong danh sách ủy quyền."""
@@ -388,6 +526,23 @@ plate_ocr = VNPlateOCR()
 print("✅ PaddleOCR initialized for Vietnamese plates")
 
 # --- BIẾN TRẠNG THÁI ---
+from core.door_controller import DoorController
+from core.mqtt_manager import MQTTManager
+
+door_controller = DoorController()
+mqtt_manager = MQTTManager(door_controller)
+mqtt_manager.start()
+print("✅ MQTT Manager started")
+
+# Start Telegram Bot Polling
+tele_thread = threading.Thread(target=telegram_polling_loop, daemon=True)
+tele_thread.start()
+
+# Start API Server
+api_thread = threading.Thread(target=start_api_server, daemon=True)
+api_thread.start()
+print("✅ API Server started at http://0.0.0.0:8000/video_feed")
+
 door_open = True
 last_frame_time = time.time()
 last_person_seen_time = time.time()
@@ -444,7 +599,7 @@ while True:
     last_frame_time = time.time()
     signal_loss_alerted = False
     
-    # 1. Nhận diện người/xe tải (YOLOv8n)
+    # 1. Nhận diện người/xe tải (YOLOv26n)
     results = general_model.track(frame, persist=True, verbose=False)
 
     for r in results:
@@ -497,9 +652,30 @@ while True:
     if FACE_RECOGNITION_AVAILABLE and int(time.time()) % 2 == 0:
         name, loc = check_face(frame)
         if name == "STRANGER":
-            msg = "NGƯỜI LẠ phát hiện tại cửa kho!"
-            db.log_event("STRANGER", msg, truck_count, person_count)
-            notify_telegram(msg, important=True)
+            # Lưu ảnh tạm để duyệt
+            face_id = str(int(time.time()))
+            temp_dir = "./config/faces/temp"
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_path = os.path.join(temp_dir, f"{face_id}.jpg")
+            
+            # Crop khuôn mặt
+            top, right, bottom, left = loc
+            face_img = frame[top:bottom, left:right]
+            if face_img.size > 0:
+                cv2.imwrite(temp_path, face_img)
+                
+                msg = f"Người lạ phát hiện! ID: `{face_id}`\nDuyệt: `/staff_face {face_id} Ten_Nhan_Vien`"
+                db.log_event("STRANGER", msg, truck_count, person_count)
+                
+                # Gửi ảnh qua API sendPhoto
+                try:
+                    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+                    with open(temp_path, "rb") as f:
+                        requests.post(url, data={"chat_id": CHAT_REGULAR, "caption": msg}, files={"photo": f})
+                except Exception as e:
+                    print(f"Lỗi gửi ảnh Telegram: {e}")
+                    notify_telegram(msg, important=True)
+                    
         elif name:
             cv2.putText(frame, name, (loc[3], loc[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
@@ -531,6 +707,11 @@ while True:
                                 f"{msg}\nXác nhận:\n/mine {plate_norm}\n/staff {plate_norm}\n/reject {plate_norm}",
                                 important=False
                             )
+                        else:
+                            # KNOWN PLATE -> TRIGGER TUYA OPEN
+                            print(f"✅ Xe quen: {plate_norm} -> MỞ CỬA")
+                            mqtt_manager.publish_trigger_open()
+                            cv2.putText(frame, "OPENING DOOR...", (px1, py1 - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                     cv2.putText(frame, plate_text, (px1, py1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
                 cv2.rectangle(frame, (px1, py1), (px2, py2), (255, 0, 255), 2)
 
@@ -554,6 +735,9 @@ while True:
             notify_telegram(msg, important=True)
             notification_sent = True
 
+    # MQTT Update
+    mqtt_manager.publish_state(person_count, truck_count, door_open)
+
     # GUI
     door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
     cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 2)
@@ -562,6 +746,9 @@ while True:
     x1, y1, x2, y2 = DOOR_ROI
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
     cv2.putText(frame, "DOOR ROI", (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+    # Cập nhật Streamer
+    streamer.update_frame(frame)
+    
     cv2.imshow("Smart Door System", frame)
     if (cv2.waitKey(1) & 0xFF) == ord(" "):
         break

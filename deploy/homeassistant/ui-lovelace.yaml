@@ -3,30 +3,38 @@ views:
   - title: Overview
     path: overview
     cards:
-      - type: entities
-        title: Shed Status
-        entities:
-          - sensor.shed_people_count
-          - sensor.shed_vehicle_count
-          - binary_sensor.shed_gate_closed
-          - sensor.shed_ptz_mode
-          - binary_sensor.shed_ocr_enabled
-      - type: button
-        name: Gate Open
-        entity: button.shed_gate_open
-      - type: button
-        name: Gate Closed
-        entity: button.shed_gate_closed
-      - type: button
-        name: Panorama View
-        entity: button.shed_ptz_panorama
-      - type: button
-        name: Return Gate View
-        entity: button.shed_ptz_gate
-      - type: picture
-        title: Monthly Report (update filename for month)
-        image: /local/reports/trips_YYYY-MM.png
-      # Update camera entity after adding Frigate integration
+      - type: vertical-stack
+        cards:
+          - type: cover
+            entity: cover.cua_cuon_kho
+            name: "Cửa cuốn kho"
+          - type: entities
+            title: Trạng thái kho
+            entities:
+              - sensor.shed_people_count
+              - sensor.shed_vehicle_count
+              - binary_sensor.shed_gate_closed
+              - sensor.shed_ptz_mode
+              - binary_sensor.shed_ocr_enabled
+
+      - type: horizontal-stack
+        cards:
+          - type: button
+            name: Gate Open
+            entity: button.shed_gate_open
+          - type: button
+            name: Gate Closed
+            entity: button.shed_gate_closed
+
+      - type: horizontal-stack
+        cards:
+          - type: button
+            name: Panorama View
+            entity: button.shed_ptz_panorama
+          - type: button
+            name: Return Gate View
+            entity: button.shed_ptz_gate
+
       - type: picture-entity
         title: Gate Camera (Frigate)
         entity: camera.frigate_cam1

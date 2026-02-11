@@ -14,7 +14,7 @@ python main.py
 ```
 
 ## Mô hình AI
-Hệ thống sử dụng model `models/yolo26n.pt` cho cả nhận diện vật thể và biển số, tối ưu hóa cho tốc độ trên thiết bị biên.
+Hệ thống sử dụng model `models/bien_so_xe.pt` cho cả nhận diện vật thể và biển số, tối ưu hóa cho tốc độ trên thiết bị biên.
 
 ## Cấu hình Bảo mật
 Sửa file `.env` (được tạo từ `.env.example` sau khi chạy install):

@@ -11,7 +11,7 @@ Hệ thống hoạt động trên một bo mạch nhúng **Orange Pi 4 Pro** (ho
   - Camera IP (RTSP) giám sát cửa.
   - Cảm biến/Trạng thái từ Home Assistant (Tuya).
 - **Processing (Core)**:
-  - **YOLOv8 (models/yolo26n.pt)**: Phát hiện người, xe tải, xe con.
+  - **YOLOv8 (models/bien_so_xe.pt)**: Phát hiện người, xe tải, xe con.
   - **PaddleOCR**: Đọc biển số xe Việt Nam (2 dòng/1 dòng).
   - **Face Recognition**: Nhận diện khuôn mặt người.
   - **Logic**: So khớp Whitelist, kiểm tra trạng thái cửa.

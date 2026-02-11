@@ -36,8 +36,8 @@ DB_PATH = os.getenv("DATABASE_PATH", "./db/door_events.db")
 USE_N8N = os.getenv("USE_N8N", "false").lower() == "true"
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
-PLATE_MODEL_PATH = "./models/yolo26n.pt"
-GENERAL_MODEL_PATH = "./models/yolo26n.pt"
+PLATE_MODEL_PATH = "./models/bien_so_xe.pt"
+GENERAL_MODEL_PATH = "./models/bien_so_xe.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"  # Custom trained model (optional)
 LINE_Y = 300
 RTSP_URL = os.getenv("RTSP_URL", "rtsp://<USER>:<PASS>@<CAMERA_IP>:554/cam/realmonitor?channel=1&subtype=0")

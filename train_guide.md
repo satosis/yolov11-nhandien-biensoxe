@@ -1,6 +1,6 @@
 # Hướng Dẫn Train Model Nhận Diện Biển Số & Người (YOLOv8)
 
-Tài liệu này hướng dẫn bạn cách tự train (huấn luyện) lại model `yolo26n.pt` để nó hiểu và nhận diện được **Biển số xe Việt Nam** và **Người**.
+Tài liệu này hướng dẫn bạn cách tự train (huấn luyện) lại model `bien_so_xe.pt` để nó hiểu và nhận diện được **Biển số xe Việt Nam** và **Người**.
 
 ## 1. Chuẩn Bị Dữ Liệu (Quan trọng nhất)
 Model AI chỉ thông minh khi được học dữ liệu tốt.
@@ -58,7 +58,7 @@ results = model.train(
     epochs=100,      # Số vòng lặp (càng nhiều càng kĩ nhưng lâu)
     imgsz=640,       # Kích thước ảnh
     batch=16,
-    name='yolo26n_custom' # Tên folder kết quả
+    name='bien_so_xe_custom' # Tên folder kết quả
 )
 ```
 
@@ -69,10 +69,10 @@ yolo task=detect mode=train model=yolov8n.pt data=dataset/data.yaml epochs=100 i
 
 ## 4. Kết Quả & Sử Dụng
 Sau khi chạy xong (khoảng 1-2 tiếng), file model tốt nhất sẽ nằm ở:
-`runs/detect/yolo26n_custom/weights/best.pt`
+`runs/detect/bien_so_xe_custom/weights/best.pt`
 
 ### 5. Cập nhật vào hệ thống
-1. Đổi tên file `best.pt` thành `yolo26n.pt`.
+1. Đổi tên file `best.pt` thành `bien_so_xe.pt`.
 2. Copy đè vào thư mục `models/` trên Orange Pi.
 3. Khởi động lại hệ thống (`python main.py`).
 

@@ -23,7 +23,7 @@ def export_model(model_path, format="onnx"):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Sử dụng: python export_model.py <path_to_model.pt> [format]")
-        print("Ví dụ: python export_model.py models/yolo26n.pt onnx")
+        print("Ví dụ: python export_model.py models/bien_so_xe.pt onnx")
         sys.exit(1)
     
     m_path = sys.argv[1]

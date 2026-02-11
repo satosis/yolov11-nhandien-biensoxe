@@ -16,7 +16,7 @@ Tài liệu này hướng dẫn chi tiết từng bước cài đặt và cấu 
 6.  Thử điều khiển Mở/Đóng trên App để đảm bảo hoạt động.
 
 ### Bước 2: Tích hợp vào Home Assistant
-1.  Mở Home Assistant (truy cập `http://IP_ORANGE_PI:8123`).
+1.  Mở Home Assistant (truy cập `http://192.168.1.131:8123`).
 2.  Vào **Settings** (Cài đặt) -> **Devices & Services** (Thiết bị & Dịch vụ).
 3.  Nhấn nút **Add Integration** (Thêm tích hợp) ở góc dưới.
 4.  Tìm kiếm từ khóa: **"Tuya"**.
@@ -64,7 +64,7 @@ RTSP_URL="rtsp://admin:SAFETY_CODE@192.168.1.55:554/cam/realmonitor?channel=1&su
 ### Bước 2: Kết nối SSH
 Dùng Terminal (Mac/Linux) hoặc PuTTY/PowerShell (Windows):
 ```bash
-ssh root@<IP_ORANGE_PI>
+ssh root@192.168.1.131
 # Mật khẩu mặc định thường là 1234 hoặc orangepi
 ```
 

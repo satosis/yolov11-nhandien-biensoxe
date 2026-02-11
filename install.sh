@@ -94,6 +94,13 @@ ensure_dirs() {
     "${ROOT_DIR}/db"
 }
 
+ensure_env() {
+  if [[ ! -f "${ROOT_DIR}/.env" ]]; then
+    log "Creating .env from .env.example..."
+    cp "${ROOT_DIR}/.env.example" "${ROOT_DIR}/.env"
+  fi
+}
+
 main() {
   log "Installing base packages..."
   apt_install ca-certificates curl git jq sqlite3 unzip
@@ -108,7 +115,12 @@ main() {
 
   # Check and optimize model
   MODEL_PATH="${ROOT_DIR}/models/bien_so_xe.pt"
-  python3 "${DEPLOY_DIR}/utils/export_model.py" "$MODEL_PATH" "onnx"
+  if [[ -f "$MODEL_PATH" ]]; then
+      log "Found bien_so_xe.pt, optimizing to ONNX..."
+      python3 "${DEPLOY_DIR}/utils/export_model.py" "$MODEL_PATH" "onnx"
+  else
+      log "⚠️ No bien_so_xe.pt found. Optimization skipped."
+  fi
 
   log "Installation complete!"
   echo ""

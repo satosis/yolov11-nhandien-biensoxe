@@ -57,7 +57,7 @@ Sử dụng trong nhóm chat:
   ```
 
 ## Home Assistant (Tích hợp Nhà thông minh)
-Truy cập: `http://<IP_ORANGE_PI>:8123`
+Truy cập: `http://192.168.1.131:8123`
 
 Tích hợp sẵn:
 - **Tuya Integration**: Điều khiển cửa cuốn tự động.

@@ -130,8 +130,8 @@ def chart(db_path, month_str, dedupe_seconds, top_pairs):
 
 def main():
     args = parse_args()
-    dedupe_seconds = int(os.getenv("DEDUPE_SECONDS", "15"))
-    top_pairs = int(os.getenv("TOP_PAIRS", "10"))
+    dedupe_seconds = 15
+    top_pairs = 10
 
     if args.report:
         report(args.db, args.month, dedupe_seconds)

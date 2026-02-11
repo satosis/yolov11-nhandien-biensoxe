@@ -17,53 +17,50 @@ import uvicorn
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("event_bridge")
 
-MQTT_HOST = os.getenv("MQTT_HOST", "mosquitto")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "frigate/events")
+MQTT_HOST = "mosquitto"
+MQTT_PORT = 1883
+MQTT_TOPIC = "frigate/events"
 MQTT_USERNAME = os.getenv("MQTT_USERNAME")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
 
-DB_PATH = os.getenv("DB_PATH", "/data/events.db")
+DB_PATH = "/data/events.db"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID_IMPORTANT = os.getenv("TELEGRAM_CHAT_IMPORTANT")
 CHAT_ID_NONIMPORTANT = os.getenv("TELEGRAM_CHAT_NONIMPORTANT")
 
-TELEGRAM_WEBHOOK_SECRET_PATH = os.getenv("TELEGRAM_WEBHOOK_SECRET_PATH", "")
-TELEGRAM_SECRET_TOKEN = os.getenv("TELEGRAM_SECRET_TOKEN", "")
-
 IMPORTANT_LABELS = {"person", "truck"}
 NONIMPORTANT_LABELS = {"car"}
 ALLOWED_EVENT_TYPES = {"new", "end"}
 
-LEFT_EXIT_WINDOW_SECONDS = int(os.getenv("LEFT_EXIT_WINDOW_SECONDS", "30"))
-LEFT_EXIT_MAX_EXTRA_PEOPLE = int(os.getenv("LEFT_EXIT_MAX_EXTRA_PEOPLE", "2"))
-MAX_ACTIVE_VEHICLE_EXIT_SESSIONS = int(os.getenv("MAX_ACTIVE_VEHICLE_EXIT_SESSIONS", "2"))
-VIRTUAL_GATE_LINE_X = int(os.getenv("VIRTUAL_GATE_LINE_X", "320"))
-INSIDE_SIDE = os.getenv("INSIDE_SIDE", "right").lower()
-GATE_DEBOUNCE_UPDATES = int(os.getenv("GATE_DEBOUNCE_UPDATES", "2"))
-TRACK_TTL_SECONDS = int(os.getenv("TRACK_TTL_SECONDS", "300"))
+LEFT_EXIT_WINDOW_SECONDS = 30  # (30 giây)
+LEFT_EXIT_MAX_EXTRA_PEOPLE = 4  # Cố định tối đa 4 người đi kèm xe
+MAX_ACTIVE_VEHICLE_EXIT_SESSIONS = 2  # Cố định tối đa 2 phiên xe thoát cùng lúc
+VIRTUAL_GATE_LINE_X = 320
+INSIDE_SIDE = "right"
+GATE_DEBOUNCE_UPDATES = 2
+TRACK_TTL_SECONDS = 300
 
-CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "10"))
-ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "900"))
-FRIGATE_BASE_URL = os.getenv("FRIGATE_BASE_URL", "http://frigate:5000")
-FRIGATE_CAMERA = os.getenv("FRIGATE_CAMERA", "cam1")
+CHECK_INTERVAL_SECONDS = 10
+ALERT_COOLDOWN_SECONDS = 900
+FRIGATE_BASE_URL = "http://frigate:5000"
+FRIGATE_CAMERA = "cam1"
 
-DRIVER_LINK_WINDOW_SECONDS = int(os.getenv("DRIVER_LINK_WINDOW_SECONDS", "60"))
-DEDUPE_SECONDS = int(os.getenv("DEDUPE_SECONDS", "15"))
-MATCH_VEHICLE_REENTRY_SECONDS = int(os.getenv("MATCH_VEHICLE_REENTRY_SECONDS", "86400"))
+DRIVER_LINK_WINDOW_SECONDS = 60
+DEDUPE_SECONDS = 15
+MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
-PTZ_AUTO_RETURN_SECONDS = int(os.getenv("PTZ_AUTO_RETURN_SECONDS", "300"))
+PTZ_AUTO_RETURN_SECONDS = 300
 
 ONVIF_HOST = os.getenv("ONVIF_HOST", "")
-ONVIF_PORT = int(os.getenv("ONVIF_PORT", "80"))
+ONVIF_PORT = 80
 ONVIF_USER = os.getenv("ONVIF_USER", "")
 ONVIF_PASS = os.getenv("ONVIF_PASS", "")
 ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
 ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
 ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
-EVENT_BRIDGE_TEST_MODE = os.getenv("EVENT_BRIDGE_TEST_MODE", "0") == "1"
-ONVIF_SIMULATE_FAIL = os.getenv("ONVIF_SIMULATE_FAIL", "0") == "1"
+EVENT_BRIDGE_TEST_MODE = False
+ONVIF_SIMULATE_FAIL = False
 
 # Relay control for garage door
 # Relay control for garage door
@@ -1864,18 +1861,10 @@ def start_mqtt_loop() -> None:
                 pass
 
 
-@app.post("/telegram/webhook/{secret_path}")
+@app.post("/telegram/webhook")
 async def telegram_webhook(
-    secret_path: str,
     request: Request,
-    x_telegram_bot_api_secret_token: str | None = Header(
-        default=None, alias="X-Telegram-Bot-Api-Secret-Token"
-    ),
 ):
-    if TELEGRAM_WEBHOOK_SECRET_PATH and secret_path != TELEGRAM_WEBHOOK_SECRET_PATH:
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
-    if TELEGRAM_SECRET_TOKEN and x_telegram_bot_api_secret_token != TELEGRAM_SECRET_TOKEN:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     try:
         update = await request.json()

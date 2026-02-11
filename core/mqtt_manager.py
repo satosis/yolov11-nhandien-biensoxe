@@ -11,11 +11,11 @@ logger = logging.getLogger("mqtt_manager")
 
 class MQTTManager:
     def __init__(self, door_controller=None):
-        self.host = os.getenv("MQTT_HOST", "localhost")
-        self.port = int(os.getenv("MQTT_PORT", "1883"))
+        self.host = "mosquitto"
+        self.port = 1883
         self.username = os.getenv("MQTT_USERNAME")
         self.password = os.getenv("MQTT_PASSWORD")
-        self.topic = os.getenv("MQTT_TOPIC", "frigate/events")
+        self.topic = "frigate/events"
         
         self.door_controller = door_controller
         self.client = mqtt.Client()
@@ -30,12 +30,24 @@ class MQTTManager:
         self.command_topics = {
             "shed/cmd/gate_open",
             "shed/cmd/gate_closed",
-            "shed/cmd/door"
+            "shed/cmd/door",
+            "shed/cmd/view_heartbeat"
         }
         
         self.state_topics = {
-            "door": "shed/state/door"
+            "door": "shed/state/door",
+            "ocr_enabled": "shed/state/ocr_enabled",
+            "ptz_mode": "shed/state/ptz_mode"
         }
+        
+        self.ocr_enabled = True # Mặc định bật
+        self.ptz_mode = "gate"  # Mặc định ở cổng
+
+    def publish_heartbeat(self):
+        try:
+            self.client.publish("shed/cmd/view_heartbeat", "heartbeat", qos=0)
+        except Exception as e:
+            logger.error(f"Failed to publish heartbeat: {e}")
 
     def start(self):
         threading.Thread(target=self._run_loop, daemon=True).start()
@@ -55,8 +67,9 @@ class MQTTManager:
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             logger.info("MQTT Connected!")
-            client.subscribe(self.topic)
             for topic in self.command_topics:
+                client.subscribe(topic)
+            for topic in self.state_topics.values():
                 client.subscribe(topic)
             # Publish initial states
             if self.door_controller:
@@ -93,6 +106,14 @@ class MQTTManager:
             if topic == "shed/cmd/door" and self.door_controller:
                 self.door_controller.control_door(payload)
                 
+            elif topic == self.state_topics["ocr_enabled"]:
+                self.ocr_enabled = (payload == "1")
+                logger.info(f"OCR State updated to: {self.ocr_enabled}")
+            
+            elif topic == self.state_topics["ptz_mode"]:
+                self.ptz_mode = payload
+                logger.info(f"PTZ Mode updated to: {self.ptz_mode}")
+
             elif topic == "shed/cmd/gate_open":
                 # Logic for gate open (if moved from event_bridge)
                 pass

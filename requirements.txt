@@ -1,5 +1,6 @@
 opencv_contrib_python==4.11.0.86
 opencv_python==4.11.0.86
+pandas>=2.0
 ultralytics==8.3.160
 paddlepaddle>=2.6.0
 paddleocr>=2.7.0

@@ -30,7 +30,7 @@ install_python_deps() {
   log "Installing Python dependencies..."
   
   # Install system deps for OpenCV, dlib, PaddleOCR
-  apt_install python3 python3-pip python3-venv \
+  apt_install python3 python3-pip python3-venv python3-setuptools python3-dev \
     libgl1 libglib2.0-0 \
     cmake build-essential libboost-all-dev
   
@@ -41,7 +41,7 @@ install_python_deps() {
   fi
   
   source "${ROOT_DIR}/venv/bin/activate"
-  pip install --upgrade pip
+  pip install --upgrade pip setuptools wheel
   pip install -r "${ROOT_DIR}/requirements.txt"
   
   log "Python dependencies installed."

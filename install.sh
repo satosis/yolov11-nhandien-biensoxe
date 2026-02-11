@@ -31,7 +31,7 @@ install_python_deps() {
   
   # Install system deps for OpenCV, dlib, PaddleOCR
   apt_install python3 python3-pip python3-venv \
-    libgl1-mesa-glx libglib2.0-0 \
+    libgl1 libglib2.0-0 \
     cmake build-essential libboost-all-dev
   
   # Create venv if not exists

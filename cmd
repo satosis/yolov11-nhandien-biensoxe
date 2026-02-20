@@ -9,7 +9,7 @@ usage() {
 Usage: ./cmd <command> [args]
 
 Commands:
-  up                Start services (docker compose up -d)
+  up                Resolve CAMERA_IP from CAMERA_MAC (runtime), then start services
   down              Stop services (docker compose down)
   logs [service]    Tail logs (default: all services)
   stats             Show event counts by label
@@ -38,6 +38,9 @@ ensure_db() {
 
 case "${1:-}" in
   up)
+    if [[ -f "${BASE_DIR}/.env" ]]; then
+      python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"
+    fi
     docker compose up -d
     ;;
   down)

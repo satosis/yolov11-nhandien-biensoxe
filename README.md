@@ -29,8 +29,14 @@ OCR_SOURCE=
 
 ## Cấu hình Camera RTSP
 Sửa trong `.env`:
+- `CAMERA_MAC`: MAC cố định của camera (khuyến nghị dùng để tự động tìm IP).
+- `CAMERA_IP_SUBNET`: subnet nội bộ để quét khi cần (ví dụ `10.115.215.0/24`).
+- `CAMERA_IP`: không cần khai báo thủ công trong `.env` (sẽ tự tạo runtime từ `CAMERA_MAC`).
 - `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera.
 - `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
+
+Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
+Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
 
 ## Tính năng Đếm Người & Xe
 - Hệ thống tự động đếm số lượng người và xe tải ra/vào.

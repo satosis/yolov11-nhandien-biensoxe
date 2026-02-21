@@ -99,12 +99,27 @@ cleanup_old_docker() {
 
 start_docker_stack() {
   if ! command -v docker >/dev/null 2>&1; then
-    return
+    return 1
   fi
 
   log "Starting new Docker stack..."
   require_sudo
-  sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d --build || true
+  if ! sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d --build; then
+    log "❌ docker compose up failed. Recent compose status:"
+    sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    return 1
+  fi
+
+  local running_count
+  running_count="$(sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps --status running --services 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${running_count}" == "0" ]]; then
+    log "❌ Docker stack started with zero running containers."
+    sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    return 1
+  fi
+
+  log "Docker stack is running (${running_count} service(s) up)."
+  return 0
 }
 
 restore_core_config_fallback() {
@@ -451,7 +466,14 @@ main() {
       log "⚠️ No bien_so_xe.pt found. Optimization skipped."
   fi
 
-  start_docker_stack
+  if ! start_docker_stack; then
+    echo ""
+    echo "❌ Installation stopped because Docker services failed to start correctly."
+    echo "Check logs with:"
+    echo "  docker compose ps -a"
+    echo "  docker compose logs --tail=200 frigate"
+    exit 1
+  fi
 
   log "Installation complete!"
   echo ""

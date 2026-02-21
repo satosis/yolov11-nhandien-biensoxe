@@ -124,4 +124,5 @@ Hành vi:
 - **Lỗi `Could not download Frigate HA integration` / `curl 404`**: installer mới đã tự thử nhiều URL fallback (main/master/release/codeload). Chạy lại `./install.sh` rồi kiểm tra lại.
 - **Khi cài integration từ GitHub**: installer đã ẩn lỗi 404 của từng URL fallback để tránh gây hiểu nhầm; chỉ báo lỗi khi mọi URL đều thất bại.
 - **Lỗi `This site can't be reached` (HA 8123 refused)**: chạy `docker compose ps` và `docker compose logs --tail=200 homeassistant` để kiểm tra container Home Assistant có đang chạy/crash không; sau đó chạy lại `./install.sh` để stack được `up -d --build` tự động.
+- **`install.sh` báo hoàn tất nhưng không có container chạy**: bản mới sẽ fail-fast nếu `docker compose up` lỗi hoặc số container running = 0. Kiểm tra `docker compose ps -a` và `docker compose logs --tail=200 frigate`.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

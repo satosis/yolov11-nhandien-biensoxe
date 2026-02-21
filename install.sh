@@ -87,14 +87,24 @@ cleanup_old_docker() {
     return
   fi
 
-  log "Cleaning up old Docker containers/images/volumes before new deployment..."
+  log "Cleaning old Docker state for this project only..."
   require_sudo
 
-  sudo docker ps -aq | xargs -r sudo docker rm -f || true
-  sudo docker images -aq | xargs -r sudo docker rmi -f || true
-  sudo docker volume ls -q | xargs -r sudo docker volume rm -f || true
-  sudo docker network prune -f || true
+  # Only clean this compose project (avoid deleting unrelated containers/images)
+  sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" down --remove-orphans --volumes || true
+  sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" rm -f || true
+  sudo docker image prune -f || true
   sudo docker builder prune -af || true
+}
+
+start_docker_stack() {
+  if ! command -v docker >/dev/null 2>&1; then
+    return
+  fi
+
+  log "Starting new Docker stack..."
+  require_sudo
+  sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d --build || true
 }
 
 restore_core_config_fallback() {
@@ -388,6 +398,8 @@ main() {
       log "⚠️ No bien_so_xe.pt found. Optimization skipped."
   fi
 
+  start_docker_stack
+
   log "Installation complete!"
   echo ""
   echo "Run the application:"
@@ -396,7 +408,7 @@ main() {
   echo ""
   echo "Note: Ensure your Camera RTSP URL and other configs are set in .env"
   echo "Home Assistant integrations:"
-  echo "  1) docker compose restart homeassistant"
+  echo "  1) docker compose ps (kiểm tra homeassistant/frigate/event_bridge đang Up)"
   echo "  2) Vào Settings > Devices & Services > Add Integration > HACS"
   echo "  3) Sau khi HACS xong, Add Integration > Frigate"
 }

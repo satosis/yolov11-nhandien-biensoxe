@@ -1,12 +1,30 @@
-import os
 import json
 import logging
+import os
 import re
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
-from dotenv import load_dotenv
 
 
 
+def load_env_file(path: str, override: bool = False) -> None:
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if override or key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(".env")
+load_env_file(".camera.env", override=True)
 def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
     if not rtsp_url or not camera_ip:
         return rtsp_url
@@ -17,8 +35,7 @@ def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
     if not parsed.scheme.startswith("rtsp"):
         return rtsp_url
 
-    hostname = parsed.hostname
-    if not hostname:
+    if not parsed.hostname:
         return rtsp_url
 
     auth = ""
@@ -34,7 +51,9 @@ def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
 
 
 RTSP_URL = resolve_rtsp_url(_RTSP_URL_RAW, CAMERA_IP)
-load_dotenv()
+
+
+    return re.sub(r"[^A-Z0-9]", "", plate_text.upper())
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
 # --- Telegram ---

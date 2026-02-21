@@ -115,8 +115,17 @@ main() {
 
   # Sanity-check local python files to catch corrupted edits/merge issues
   if ! python3 -m py_compile "${ROOT_DIR}/core/config.py"; then
-      echo "❌ Syntax error in core/config.py. Please git pull latest code or restore file."
-      exit 1
+      log "Detected syntax issue in core/config.py. Trying auto-restore from git HEAD..."
+      if git -C "${ROOT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        git -C "${ROOT_DIR}" checkout -- core/config.py || true
+      fi
+
+      if ! python3 -m py_compile "${ROOT_DIR}/core/config.py"; then
+        echo "❌ Syntax error in core/config.py. Please run: git pull && python3 -m py_compile core/config.py"
+        exit 1
+      fi
+
+      log "core/config.py was restored successfully."
   fi
 
   # Check and optimize model

@@ -37,6 +37,7 @@ Sửa trong `.env`:
 - `CAMERA_IP_SUBNET`: subnet nội bộ để quét khi cần (ví dụ `10.115.215.0/24`).
 - `CAMERA_IP`: không cần khai báo thủ công trong `.env` (sẽ tự tạo runtime từ `CAMERA_MAC`).
 - `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera (khuyến nghị `@{CAMERA_IP}`; nếu còn để IP cũ, app sẽ tự thay host theo `CAMERA_IP` runtime).
+- `RTSP_USER` và `RTSP_PASS`: tài khoản đăng nhập camera cho Frigate (được dùng trực tiếp trong `deploy/frigate/config.yml`).
 - `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
 
 Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
@@ -106,6 +107,7 @@ Hành vi:
 
 ## Xử lý sự cố (Troubleshooting)
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
+- **Frigate báo lỗi đăng nhập camera**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `deploy/frigate/config.yml` dùng trực tiếp 2 biến này cùng `{CAMERA_IP}` nên không cần sửa tay file config nữa.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Vẫn thấy log cũ `/app/app.py ... client = mqtt.Client()`**: image `event_bridge` chưa rebuild theo code mới. Chạy lại `./cmd up` (lệnh này tự `docker compose build event_bridge`, rồi chờ health của Frigate trước khi kết thúc).
 - **Cảnh báo `Snapshot fetch failed ... connection refused` lúc mới `./cmd up`**: thường do Frigate đang khởi động (`health: starting`). Đợi Frigate `healthy` rồi kiểm tra lại log.

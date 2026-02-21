@@ -107,7 +107,7 @@ Hành vi:
 ## Xử lý sự cố (Troubleshooting)
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
-- **Vẫn thấy log cũ `/app/app.py ... client = mqtt.Client()`**: image `event_bridge` chưa rebuild theo code mới. Chạy lại `./cmd up` (lệnh này đã tự `docker compose build event_bridge` trước khi start).
+- **Vẫn thấy log cũ `/app/app.py ... client = mqtt.Client()`**: image `event_bridge` chưa rebuild theo code mới. Chạy lại `./cmd up` (lệnh này tự `docker compose build event_bridge`, rồi chờ health của Frigate trước khi kết thúc).
 - **Cảnh báo `Snapshot fetch failed ... connection refused` lúc mới `./cmd up`**: thường do Frigate đang khởi động (`health: starting`). Đợi Frigate `healthy` rồi kiểm tra lại log.
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
 - **Cảnh báo ONNX opset/version converter**: script export mặc định dùng `opset=18` để tránh lỗi convert từ opset thấp (ví dụ lỗi `No Adapter To Version ... for Resize`). Có thể chạy tay: `python3 deploy/utils/export_model.py models/bien_so_xe.pt onnx 18`.
@@ -120,5 +120,6 @@ Hành vi:
 - **Lỗi `HACS package is invalid (missing custom_components/hacs)`**: gói HACS thay đổi cấu trúc theo phiên bản; installer mới đã tự dò đúng thư mục. Chạy lại `./install.sh`.
 - **Frigate không xuất hiện trong Add Integration**: chạy lại `./install.sh`, sau đó `docker compose ps` để chắc `homeassistant` đang `Up`, đợi 30-60 giây và refresh trình duyệt HA.
 - **Lỗi `Could not download Frigate HA integration` / `curl 404`**: installer mới đã tự thử nhiều URL fallback (main/master/release/codeload). Chạy lại `./install.sh` rồi kiểm tra lại.
+- **Khi cài integration từ GitHub**: installer đã ẩn lỗi 404 của từng URL fallback để tránh gây hiểu nhầm; chỉ báo lỗi khi mọi URL đều thất bại.
 - **Lỗi `This site can't be reached` (HA 8123 refused)**: chạy `docker compose ps` và `docker compose logs --tail=200 homeassistant` để kiểm tra container Home Assistant có đang chạy/crash không; sau đó chạy lại `./install.sh` để stack được `up -d --build` tự động.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

@@ -236,13 +236,27 @@ install_hacs() {
   tmp_dir="$(mktemp -d)"
 
   log "Installing HACS into Home Assistant config..."
-  if ! curl -fsSL "https://github.com/hacs/integration/releases/latest/download/hacs.zip" -o "${tmp_dir}/hacs.zip"; then
-    log "⚠️ Could not download HACS package. Skipping HACS install."
+  local hacs_zip="${tmp_dir}/hacs.zip"
+  local hacs_downloaded=0
+  local hacs_urls=(
+    "https://github.com/hacs/integration/releases/latest/download/hacs.zip"
+    "https://codeload.github.com/hacs/integration/zip/refs/heads/main"
+    "https://codeload.github.com/hacs/integration/zip/refs/heads/master"
+  )
+  for url in "${hacs_urls[@]}"; do
+    if curl -fsSL "${url}" -o "${hacs_zip}" 2>/dev/null; then
+      hacs_downloaded=1
+      break
+    fi
+  done
+
+  if [[ "${hacs_downloaded}" -ne 1 ]]; then
+    log "⚠️ Could not download HACS package from known URLs. Skipping HACS install."
     rm -rf "${tmp_dir}"
     return
   fi
 
-  if ! unzip -q "${tmp_dir}/hacs.zip" -d "${tmp_dir}"; then
+  if ! unzip -q "${hacs_zip}" -d "${tmp_dir}"; then
     log "⚠️ Could not extract HACS package. Skipping HACS install."
     rm -rf "${tmp_dir}"
     return
@@ -266,6 +280,13 @@ install_hacs() {
     rm -rf "${tmp_dir}"
     return
   fi
+
+  if [[ ! -d "${hacs_dir}" ]]; then
+    log "⚠️ HACS copy step completed but destination not found (${hacs_dir})."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
   rm -rf "${tmp_dir}"
   log "HACS installed: ${hacs_dir}"
 }
@@ -301,7 +322,7 @@ install_frigate_ha_integration() {
     "https://codeload.github.com/blakeblackshear/frigate-hass-integration/zip/refs/heads/master"
   )
   for url in "${frigate_urls[@]}"; do
-    if curl -fsSL "${url}" -o "${frigate_zip}"; then
+    if curl -fsSL "${url}" -o "${frigate_zip}" 2>/dev/null; then
       downloaded=1
       break
     fi

@@ -113,6 +113,12 @@ main() {
   ensure_dirs
   ensure_env
 
+  # Sanity-check local python files to catch corrupted edits/merge issues
+  if ! python3 -m py_compile "${ROOT_DIR}/core/config.py"; then
+      echo "❌ Syntax error in core/config.py. Please git pull latest code or restore file."
+      exit 1
+  fi
+
   # Check and optimize model
   MODEL_PATH="${ROOT_DIR}/models/bien_so_xe.pt"
   if [[ -f "$MODEL_PATH" ]]; then

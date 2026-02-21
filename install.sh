@@ -248,13 +248,19 @@ install_hacs() {
     return
   fi
 
-  if [[ ! -d "${tmp_dir}/hacs" ]]; then
-    log "⚠️ HACS package is invalid (missing hacs folder). Skipping HACS install."
-    rm -rf "${tmp_dir}"
-    return
+  local src_dir
+  src_dir="$(find "${tmp_dir}" -type d -path "*/custom_components/hacs" | head -n 1)"
+  if [[ -z "${src_dir}" || ! -d "${src_dir}" ]]; then
+    if [[ -d "${tmp_dir}/hacs" ]]; then
+      src_dir="${tmp_dir}/hacs"
+    else
+      log "⚠️ HACS package is invalid (missing custom_components/hacs). Skipping HACS install."
+      rm -rf "${tmp_dir}"
+      return
+    fi
   fi
 
-  if ! cp -r "${tmp_dir}/hacs" "${ha_custom_dir}/" 2>/dev/null; then
+  if ! cp -r "${src_dir}" "${ha_custom_dir}/" 2>/dev/null; then
     log "⚠️ Cannot copy HACS into ${ha_custom_dir} (permission denied). Skipping HACS auto-install."
     log "⚠️ Fix with: sudo chown -R ${RUN_USER}:${RUN_USER} ${ROOT_DIR}/data/homeassistant"
     rm -rf "${tmp_dir}"

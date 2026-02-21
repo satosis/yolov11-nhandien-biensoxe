@@ -39,7 +39,9 @@ ensure_db() {
 case "${1:-}" in
   up)
     if [[ -f "${BASE_DIR}/.env" ]]; then
-      python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"
+      if ! python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"; then
+        echo "[cmd] ⚠️ Cannot resolve CAMERA_IP from CAMERA_MAC. Continue startup with existing RTSP_URL/.camera.env."
+      fi
     fi
     docker compose up -d
     ;;

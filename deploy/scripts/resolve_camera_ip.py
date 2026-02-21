@@ -150,6 +150,7 @@ def main() -> int:
     if not camera_ip:
         print("[camera-ip] Cannot resolve CAMERA_IP from CAMERA_MAC.")
         print("[camera-ip] Ensure camera is connected to same LAN.")
+        print("[camera-ip] Tip: set CAMERA_IP_SUBNET in .env (e.g. 10.115.215.0/24) to improve discovery.")
         return 1
 
     out_lines = load_env_lines(out_env_path)

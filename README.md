@@ -103,4 +103,5 @@ Hành vi:
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
+- **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: kiểm tra camera cùng LAN, đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`), rồi chạy lại `./cmd up`. Nếu vẫn không dò được, hệ thống vẫn có thể chạy với `RTSP_URL`/`.camera.env` hiện có.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

@@ -65,7 +65,7 @@ CHAT_REGULAR = os.getenv("TELEGRAM_CHAT_NONIMPORTANT")
 DB_PATH = "./db/door_events.db"
 
 # --- Model Paths ---
-PLATE_MODEL_PATH = "./models/bien_so_xe.pt"
+        logging.getLogger(__name__).info("Loaded %d authorized plates", len(authorized_plates))
 GENERAL_MODEL_PATH = "./models/bien_so_xe.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"
 

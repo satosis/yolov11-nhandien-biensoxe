@@ -2,9 +2,38 @@ import os
 import json
 import logging
 import re
+from urllib.parse import urlsplit, urlunsplit
 from dotenv import load_dotenv
 
-# Load môi trường
+
+
+def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
+    if not rtsp_url or not camera_ip:
+        return rtsp_url
+    if "{CAMERA_IP}" in rtsp_url:
+        return rtsp_url.replace("{CAMERA_IP}", camera_ip)
+
+    parsed = urlsplit(rtsp_url)
+    if not parsed.scheme.startswith("rtsp"):
+        return rtsp_url
+
+    hostname = parsed.hostname
+    if not hostname:
+        return rtsp_url
+
+    auth = ""
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth += f":{parsed.password}"
+        auth += "@"
+
+    port = f":{parsed.port}" if parsed.port else ""
+    new_netloc = f"{auth}{camera_ip}{port}"
+    return urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+RTSP_URL = resolve_rtsp_url(_RTSP_URL_RAW, CAMERA_IP)
 load_dotenv()
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 

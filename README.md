@@ -107,7 +107,7 @@ Hành vi:
 
 ## Xử lý sự cố (Troubleshooting)
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
-- **Frigate báo lỗi đăng nhập camera**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `deploy/frigate/config.yml` dùng trực tiếp 2 biến này cùng `{CAMERA_IP}` nên không cần sửa tay file config nữa.
+- **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `./cmd up` hiện cũng tự fallback lấy user/pass từ `RTSP_URL` và ghi vào `.camera.env` để tránh thiếu biến `{RTSP_USER}`/`{RTSP_PASS}` trong `deploy/frigate/config.yml`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Vẫn thấy log cũ `/app/app.py ... client = mqtt.Client()`**: image `event_bridge` chưa rebuild theo code mới. Chạy lại `./cmd up` (lệnh này tự `docker compose build event_bridge`, rồi chờ health của Frigate trước khi kết thúc).
 - **Cảnh báo `Snapshot fetch failed ... connection refused` lúc mới `./cmd up`**: thường do Frigate đang khởi động (`health: starting`). Đợi Frigate `healthy` rồi kiểm tra lại log.

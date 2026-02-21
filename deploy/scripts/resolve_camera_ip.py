@@ -168,6 +168,26 @@ def update_or_insert(lines: list[str], key: str, value: str) -> list[str]:
     return lines
 
 
+def resolve_rtsp_credentials(data: dict[str, str]) -> tuple[str, str]:
+    """Resolve RTSP credentials from explicit env or fallback RTSP_URL."""
+    rtsp_user = data.get("RTSP_USER", "").strip()
+    rtsp_pass = data.get("RTSP_PASS", "").strip()
+
+    if rtsp_user and rtsp_pass:
+        return rtsp_user, rtsp_pass
+
+    rtsp_url = data.get("RTSP_URL", "").strip()
+    if not rtsp_url:
+        return rtsp_user, rtsp_pass
+
+    parsed = urlsplit(rtsp_url)
+    if not rtsp_user and parsed.username:
+        rtsp_user = parsed.username
+    if not rtsp_pass and parsed.password:
+        rtsp_pass = parsed.password
+    return rtsp_user, rtsp_pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", default=".env", help="Source env file (contains CAMERA_MAC)")
@@ -212,9 +232,16 @@ def main() -> int:
 
     out_lines = load_env_lines(out_env_path)
     out_lines = update_or_insert(out_lines, "CAMERA_IP", camera_ip)
+    rtsp_user, rtsp_pass = resolve_rtsp_credentials(data)
+    out_lines = update_or_insert(out_lines, "RTSP_USER", rtsp_user)
+    out_lines = update_or_insert(out_lines, "RTSP_PASS", rtsp_pass)
     out_env_path.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
     if not args.quiet:
         print(f"[camera-ip] CAMERA_IP={camera_ip} written to {out_env_path} (from MAC {camera_mac})")
+        if rtsp_user and rtsp_pass:
+            print("[camera-ip] RTSP_USER/RTSP_PASS populated for Frigate env substitution")
+        else:
+            print("[camera-ip] WARNING: RTSP_USER/RTSP_PASS are empty; Frigate stream auth may fail")
     return 0
 
 

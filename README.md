@@ -104,5 +104,6 @@ Hành vi:
 - **Cảnh báo ONNX opset/version converter**: script export mặc định dùng `opset=18` để tránh lỗi convert từ opset thấp (ví dụ lỗi `No Adapter To Version ... for Resize`). Có thể chạy tay: `python3 deploy/utils/export_model.py models/bien_so_xe.pt onnx 18`.
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
-- **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: kiểm tra camera cùng LAN, đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`), rồi chạy lại `./cmd up`. Nếu vẫn không dò được, hệ thống vẫn có thể chạy với `RTSP_URL`/`.camera.env` hiện có.
+- **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: kiểm tra camera cùng LAN, đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`), rồi chạy lại `./cmd up`.
+- **Lỗi `env file .camera.env not found` khi `./cmd up`**: đã được xử lý trong lệnh `./cmd up` mới (tự tạo `.camera.env` rỗng trước khi chạy Docker). Nếu đang dùng bản cũ, cập nhật mã mới hoặc tự tạo tạm bằng `touch .camera.env`.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

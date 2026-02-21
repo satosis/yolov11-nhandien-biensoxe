@@ -38,6 +38,10 @@ ensure_db() {
 
 case "${1:-}" in
   up)
+    # docker compose fails if an env_file path does not exist.
+    # Ensure runtime camera env file is always present.
+    touch "${BASE_DIR}/.camera.env"
+
     if [[ -f "${BASE_DIR}/.env" ]]; then
       if ! python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"; then
         echo "[cmd] ⚠️ Cannot resolve CAMERA_IP from CAMERA_MAC. Continue startup with existing RTSP_URL/.camera.env."

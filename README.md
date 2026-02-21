@@ -104,6 +104,7 @@ Hành vi:
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
 - **Cảnh báo ONNX opset/version converter**: script export mặc định dùng `opset=18` để tránh lỗi convert từ opset thấp (ví dụ lỗi `No Adapter To Version ... for Resize`). Có thể chạy tay: `python3 deploy/utils/export_model.py models/bien_so_xe.pt onnx 18`.
+- **Cảnh báo `onnxruntime ... GPU device discovery failed` trên Orange Pi CPU-only**: đây là cảnh báo phụ khi optimize/simplify ONNX, không làm export fail. Script hiện mặc định `simplify=False` cho ONNX để giảm cảnh báo này; nếu cần tối ưu thêm thì bật `ONNX_SIMPLIFY=1` trước khi export.
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: script hiện sẽ tự quét nhiều dải mạng LAN (bao gồm interface nội bộ và fallback), nhưng bạn vẫn nên đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`) để dò nhanh/chính xác hơn, rồi chạy lại `./cmd up`.

@@ -22,6 +22,11 @@ def ensure_onnx_requirements() -> bool:
     return True
 
 
+def use_onnx_simplify() -> bool:
+    """Default OFF for Orange Pi/CPU-only to avoid noisy onnxruntime GPU discovery warnings."""
+    return os.getenv("ONNX_SIMPLIFY", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def export_model(model_path, format="onnx", onnx_opset: int = DEFAULT_ONNX_OPSET):
     """
     Xuất model YOLO sang các định dạng tối ưu.
@@ -42,7 +47,8 @@ def export_model(model_path, format="onnx", onnx_opset: int = DEFAULT_ONNX_OPSET
         export_kwargs = {"format": format, "imgsz": 640, "simplify": True}
         if format == "onnx":
             export_kwargs["opset"] = onnx_opset
-            print(f"ℹ️ ONNX export opset={onnx_opset}")
+            export_kwargs["simplify"] = use_onnx_simplify()
+            print(f"ℹ️ ONNX export opset={onnx_opset}, simplify={export_kwargs['simplify']}")
 
         path = model.export(**export_kwargs)
         print(f"✅ Thành công! File đã lưu tại: {path}")
@@ -54,6 +60,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Sử dụng: python export_model.py <path_to_model.pt> [format] [onnx_opset]")
         print("Ví dụ: python export_model.py models/bien_so_xe.pt onnx 18")
+        print("Tuỳ chọn: ONNX_SIMPLIFY=1 để bật optimize/simplify sau export ONNX")
         sys.exit(1)
 
     m_path = sys.argv[1]

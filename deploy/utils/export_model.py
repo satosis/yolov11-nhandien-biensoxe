@@ -2,6 +2,9 @@ import importlib.util
 import os
 import sys
 
+DEFAULT_ONNX_OPSET = 18
+
+
 def ensure_onnx_requirements() -> bool:
     missing = []
     for module_name in ("onnx", "onnxscript"):
@@ -14,14 +17,12 @@ def ensure_onnx_requirements() -> bool:
             + ", ".join(missing)
             + f" (Python {sys.version.split()[0]})"
         )
-        print(
-            "👉 Chạy: source venv/bin/activate && pip install -r requirements.txt"
-        )
+        print("👉 Chạy: source venv/bin/activate && pip install -r requirements.txt")
         return False
     return True
 
 
-def export_model(model_path, format="onnx"):
+def export_model(model_path, format="onnx", onnx_opset: int = DEFAULT_ONNX_OPSET):
     """
     Xuất model YOLO sang các định dạng tối ưu.
     Supported formats: onnx, ncnn, openvino, engine, coreml, torchscript
@@ -38,7 +39,12 @@ def export_model(model_path, format="onnx"):
         from ultralytics import YOLO
 
         model = YOLO(model_path)
-        path = model.export(format=format, imgsz=640, simplify=True)
+        export_kwargs = {"format": format, "imgsz": 640, "simplify": True}
+        if format == "onnx":
+            export_kwargs["opset"] = onnx_opset
+            print(f"ℹ️ ONNX export opset={onnx_opset}")
+
+        path = model.export(**export_kwargs)
         print(f"✅ Thành công! File đã lưu tại: {path}")
     except Exception as e:
         print(f"❌ Lỗi khi xuất model: {e}")
@@ -46,10 +52,11 @@ def export_model(model_path, format="onnx"):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Sử dụng: python export_model.py <path_to_model.pt> [format]")
-        print("Ví dụ: python export_model.py models/bien_so_xe.pt onnx")
+        print("Sử dụng: python export_model.py <path_to_model.pt> [format] [onnx_opset]")
+        print("Ví dụ: python export_model.py models/bien_so_xe.pt onnx 18")
         sys.exit(1)
 
     m_path = sys.argv[1]
     fmt = sys.argv[2] if len(sys.argv) > 2 else "onnx"
-    export_model(m_path, fmt)
+    opset = int(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_ONNX_OPSET
+    export_model(m_path, fmt, opset)

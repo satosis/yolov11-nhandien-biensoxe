@@ -101,6 +101,7 @@ Hành vi:
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
+- **Cảnh báo ONNX opset/version converter**: script export mặc định dùng `opset=18` để tránh lỗi convert từ opset thấp (ví dụ lỗi `No Adapter To Version ... for Resize`). Có thể chạy tay: `python3 deploy/utils/export_model.py models/bien_so_xe.pt onnx 18`.
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: kiểm tra camera cùng LAN, đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`), rồi chạy lại `./cmd up`. Nếu vẫn không dò được, hệ thống vẫn có thể chạy với `RTSP_URL`/`.camera.env` hiện có.

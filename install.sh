@@ -209,7 +209,6 @@ install_hacs() {
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "${tmp_dir}"' RETURN
 
   log "Installing HACS into Home Assistant config..."
   if ! curl -fsSL "https://github.com/hacs/integration/releases/latest/download/hacs.zip" -o "${tmp_dir}/hacs.zip"; then

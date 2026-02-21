@@ -268,9 +268,20 @@ install_hacs() {
     if [[ -d "${tmp_dir}/hacs" ]]; then
       src_dir="${tmp_dir}/hacs"
     else
-      log "⚠️ HACS package is invalid (missing custom_components/hacs). Skipping HACS install."
-      rm -rf "${tmp_dir}"
-      return
+      log "⚠️ HACS archive layout not recognized. Trying git fallback..."
+      if git clone --depth 1 https://github.com/hacs/integration.git "${tmp_dir}/hacs-repo" >/dev/null 2>&1; then
+        if [[ -d "${tmp_dir}/hacs-repo/custom_components/hacs" ]]; then
+          src_dir="${tmp_dir}/hacs-repo/custom_components/hacs"
+        else
+          log "⚠️ HACS git fallback also missing custom_components/hacs. Skipping HACS install."
+          rm -rf "${tmp_dir}"
+          return
+        fi
+      else
+        log "⚠️ Could not clone HACS repository for fallback. Skipping HACS install."
+        rm -rf "${tmp_dir}"
+        return
+      fi
     fi
   fi
 

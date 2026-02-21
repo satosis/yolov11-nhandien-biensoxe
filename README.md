@@ -119,7 +119,7 @@ Hành vi:
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: script hiện sẽ tự quét nhiều dải mạng LAN (bao gồm interface nội bộ và fallback), nhưng bạn vẫn nên đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`) để dò nhanh/chính xác hơn, rồi chạy lại `./cmd up`.
 - **Lỗi `env file .camera.env not found` khi `./cmd up`**: đã được xử lý trong lệnh `./cmd up` mới (tự tạo `.camera.env` rỗng trước khi chạy Docker). Nếu đang dùng bản cũ, cập nhật mã mới hoặc tự tạo tạm bằng `touch .camera.env`.
 - **Lỗi `Permission denied` khi cài HACS (`data/homeassistant/custom_components`)**: sửa quyền rồi chạy lại install: `sudo chown -R $USER:$USER data/homeassistant && ./install.sh`.
-- **Lỗi `HACS package is invalid (missing custom_components/hacs)`**: gói HACS thay đổi cấu trúc theo phiên bản; installer mới đã tự dò đúng thư mục. Chạy lại `./install.sh`.
+- **Lỗi `HACS package is invalid (missing custom_components/hacs)`**: installer đã tự thử fallback `git clone hacs/integration` khi archive không đúng layout; nếu vẫn lỗi, kiểm tra mạng GitHub rồi chạy lại `./install.sh`.
 - **Frigate không xuất hiện trong Add Integration**: chạy lại `./install.sh`, sau đó `docker compose ps` để chắc `homeassistant` đang `Up`, đợi 30-60 giây và refresh trình duyệt HA.
 - **Lỗi `Could not download Frigate HA integration` / `curl 404`**: installer mới đã tự thử nhiều URL fallback (main/master/release/codeload). Chạy lại `./install.sh` rồi kiểm tra lại.
 - **Khi cài integration từ GitHub**: installer đã ẩn lỗi 404 của từng URL fallback để tránh gây hiểu nhầm; chỉ báo lỗi khi mọi URL đều thất bại.

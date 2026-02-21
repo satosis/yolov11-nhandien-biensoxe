@@ -7,7 +7,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-`install.sh` hiện sẽ tự copy HACS vào `data/homeassistant/custom_components/hacs` (nếu tải được), để bạn chỉ cần restart Home Assistant và Add Integration `HACS`.
+`install.sh` hiện sẽ tự copy HACS và Frigate Home Assistant integration vào `data/homeassistant/custom_components/` (nếu tải được), để bạn restart Home Assistant rồi Add Integration trong UI.
 
 Sau khi cài đặt xong, chạy ứng dụng:
 ```bash
@@ -115,4 +115,5 @@ Hành vi:
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: script hiện sẽ tự quét nhiều dải mạng LAN (bao gồm interface nội bộ và fallback), nhưng bạn vẫn nên đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`) để dò nhanh/chính xác hơn, rồi chạy lại `./cmd up`.
 - **Lỗi `env file .camera.env not found` khi `./cmd up`**: đã được xử lý trong lệnh `./cmd up` mới (tự tạo `.camera.env` rỗng trước khi chạy Docker). Nếu đang dùng bản cũ, cập nhật mã mới hoặc tự tạo tạm bằng `touch .camera.env`.
 - **Lỗi `Permission denied` khi cài HACS (`data/homeassistant/custom_components`)**: sửa quyền rồi chạy lại install: `sudo chown -R $USER:$USER data/homeassistant && ./install.sh`.
+- **Frigate không xuất hiện trong Add Integration**: chạy lại `./install.sh`, sau đó `docker compose restart homeassistant`, đợi 30-60 giây và refresh trình duyệt HA.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

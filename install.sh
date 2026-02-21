@@ -240,6 +240,57 @@ install_hacs() {
 }
 
 
+
+install_frigate_ha_integration() {
+  local ha_custom_dir="${ROOT_DIR}/data/homeassistant/custom_components"
+  local frigate_dir="${ha_custom_dir}/frigate"
+
+  if [[ -d "${frigate_dir}" ]]; then
+    log "Frigate HA integration already installed at ${frigate_dir}."
+    return
+  fi
+
+  if ! mkdir -p "${ha_custom_dir}" 2>/dev/null; then
+    log "⚠️ Cannot create ${ha_custom_dir} (permission denied). Skipping Frigate HA integration install."
+    log "⚠️ Fix with: sudo chown -R ${RUN_USER}:${RUN_USER} ${ROOT_DIR}/data/homeassistant"
+    return
+  fi
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+
+  log "Installing Frigate Home Assistant integration..."
+  if ! curl -fsSL "https://github.com/blakeblackshear/frigate-hass-integration/archive/refs/heads/main.zip" -o "${tmp_dir}/frigate-ha.zip"; then
+    log "⚠️ Could not download Frigate HA integration. Skipping install."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  if ! unzip -q "${tmp_dir}/frigate-ha.zip" -d "${tmp_dir}"; then
+    log "⚠️ Could not extract Frigate HA integration package. Skipping install."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  local src_dir
+  src_dir="$(find "${tmp_dir}" -type d -path "*/custom_components/frigate" | head -n 1)"
+  if [[ -z "${src_dir}" || ! -d "${src_dir}" ]]; then
+    log "⚠️ Invalid Frigate HA integration package (missing custom_components/frigate)."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  if ! cp -r "${src_dir}" "${ha_custom_dir}/" 2>/dev/null; then
+    log "⚠️ Cannot copy Frigate integration into ${ha_custom_dir} (permission denied)."
+    log "⚠️ Fix with: sudo chown -R ${RUN_USER}:${RUN_USER} ${ROOT_DIR}/data/homeassistant"
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  rm -rf "${tmp_dir}"
+  log "Frigate HA integration installed: ${frigate_dir}"
+}
+
 ensure_homeassistant_permissions() {
   local ha_dir="${ROOT_DIR}/data/homeassistant"
 
@@ -287,6 +338,7 @@ main() {
   ensure_env
   ensure_homeassistant_permissions
   install_hacs
+  install_frigate_ha_integration
 
   # Sanity-check local python files to catch corrupted edits/merge issues
   if ! python3 -m py_compile "${ROOT_DIR}/core/config.py"; then
@@ -324,9 +376,10 @@ main() {
   echo "  python main.py"
   echo ""
   echo "Note: Ensure your Camera RTSP URL and other configs are set in .env"
-  echo "Home Assistant + HACS:"
+  echo "Home Assistant integrations:"
   echo "  1) docker compose restart homeassistant"
   echo "  2) Vào Settings > Devices & Services > Add Integration > HACS"
+  echo "  3) Sau khi HACS xong, Add Integration > Frigate"
 }
 
 main "$@"

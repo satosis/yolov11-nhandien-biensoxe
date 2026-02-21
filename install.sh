@@ -10,6 +10,26 @@ log() {
   echo "[install] $*"
 }
 
+compose_up_with_capture() {
+  local output_file="$1"
+  require_sudo
+  if sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d --build >"${output_file}" 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+is_shim_segfault_error() {
+  local output_file="$1"
+  if [[ ! -f "${output_file}" ]]; then
+    return 1
+  fi
+  if grep -qiE "unexpected fault address|fatal error: fault|segmentation violation|failed to start shim" "${output_file}"; then
+    return 0
+  fi
+  return 1
+}
+
 require_sudo() {
   if [[ "$EUID" -ne 0 ]]; then
     if ! command -v sudo >/dev/null 2>&1; then
@@ -103,10 +123,34 @@ start_docker_stack() {
   fi
 
   log "Starting new Docker stack..."
-  require_sudo
-  if ! sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d --build; then
+  local compose_log
+  compose_log="$(mktemp)"
+
+  if ! compose_up_with_capture "${compose_log}"; then
+    cat "${compose_log}" || true
+
+    if is_shim_segfault_error "${compose_log}"; then
+      log "⚠️ Detected Docker shim/runtime segfault. Restarting Docker daemon and retrying once..."
+      sudo systemctl restart docker || true
+      sleep 3
+      if ! compose_up_with_capture "${compose_log}"; then
+        cat "${compose_log}" || true
+        log "❌ Retry failed after Docker restart."
+        log "Hint: this is usually a Docker/Kernel runtime issue on ARM. Try:"
+        log "  sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io"
+      fi
+    fi
+  fi
+
+  local rc=0
+  if ! sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps >/dev/null 2>&1; then
+    rc=1
+  fi
+
+  if [[ "${rc}" -ne 0 ]]; then
     log "❌ docker compose up failed. Recent compose status:"
     sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    rm -f "${compose_log}"
     return 1
   fi
 
@@ -115,9 +159,11 @@ start_docker_stack() {
   if [[ "${running_count}" == "0" ]]; then
     log "❌ Docker stack started with zero running containers."
     sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    rm -f "${compose_log}"
     return 1
   fi
 
+  rm -f "${compose_log}"
   log "Docker stack is running (${running_count} service(s) up)."
   return 0
 }
@@ -472,6 +518,7 @@ main() {
     echo "Check logs with:"
     echo "  docker compose ps -a"
     echo "  docker compose logs --tail=200 frigate"
+    echo "  sudo systemctl status docker --no-pager"
     exit 1
   fi
 

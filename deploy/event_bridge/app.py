@@ -1768,7 +1768,10 @@ def alert_loop() -> None:
                         snapshot_path = save_snapshot(snapshot)
                         sent = send_telegram_photo(CHAT_ID_IMPORTANT, caption, snapshot)
                     if not sent:
-                        send_telegram_message(CHAT_ID_IMPORTANT, caption)
+                        logger.warning(
+                            "Important alert skipped because camera snapshot is unavailable."
+                        )
+                        continue
                     insert_gate_alert_event(gate_closed, people_count, "no_one_gate_open", snapshot_path)
                     update_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN, now.isoformat())
         except Exception as exc:

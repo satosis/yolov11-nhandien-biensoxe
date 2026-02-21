@@ -50,6 +50,7 @@ Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự d�
 ## Lệnh Telegram (Quản lý)
 Sử dụng trong nhóm chat:
 - Bot sẽ tự đăng ký danh sách lệnh Telegram (menu `/`) khi `event_bridge` khởi động.
+- Cảnh báo quan trọng (không có người nhưng cửa chưa đóng) chỉ gửi khi đính kèm ảnh chụp camera.
 - `/gate_closed`: Đặt trạng thái cửa là ĐÓNG.
 - `/gate_open`: Đặt trạng thái cửa là MỞ.
 - `/gate_status`: Xem trạng thái cửa + số người/xe.
@@ -113,4 +114,5 @@ Hành vi:
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: script hiện sẽ tự quét nhiều dải mạng LAN (bao gồm interface nội bộ và fallback), nhưng bạn vẫn nên đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`) để dò nhanh/chính xác hơn, rồi chạy lại `./cmd up`.
 - **Lỗi `env file .camera.env not found` khi `./cmd up`**: đã được xử lý trong lệnh `./cmd up` mới (tự tạo `.camera.env` rỗng trước khi chạy Docker). Nếu đang dùng bản cũ, cập nhật mã mới hoặc tự tạo tạm bằng `touch .camera.env`.
+- **Lỗi `Permission denied` khi cài HACS (`data/homeassistant/custom_components`)**: sửa quyền rồi chạy lại install: `sudo chown -R $USER:$USER data/homeassistant && ./install.sh`.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

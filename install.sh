@@ -201,7 +201,11 @@ install_hacs() {
     return
   fi
 
-  mkdir -p "${ha_custom_dir}"
+  if ! mkdir -p "${ha_custom_dir}" 2>/dev/null; then
+    log "⚠️ Cannot create ${ha_custom_dir} (permission denied). Skipping HACS auto-install."
+    log "⚠️ Fix with: sudo chown -R ${RUN_USER}:${RUN_USER} ${ROOT_DIR}/data/homeassistant"
+    return
+  fi
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
@@ -226,7 +230,12 @@ install_hacs() {
     return
   fi
 
-  cp -r "${tmp_dir}/hacs" "${ha_custom_dir}/"
+  if ! cp -r "${tmp_dir}/hacs" "${ha_custom_dir}/" 2>/dev/null; then
+    log "⚠️ Cannot copy HACS into ${ha_custom_dir} (permission denied). Skipping HACS auto-install."
+    log "⚠️ Fix with: sudo chown -R ${RUN_USER}:${RUN_USER} ${ROOT_DIR}/data/homeassistant"
+    rm -rf "${tmp_dir}"
+    return
+  fi
   rm -rf "${tmp_dir}"
   log "HACS installed: ${hacs_dir}"
 }

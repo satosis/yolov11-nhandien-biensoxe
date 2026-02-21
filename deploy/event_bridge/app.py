@@ -108,6 +108,18 @@ ptz_state_cache = {
 mqtt_client: mqtt.Client | None = None
 
 
+TELEGRAM_BOT_COMMANDS = [
+    {"command": "gate_open", "description": "Mở trạng thái cổng"},
+    {"command": "gate_closed", "description": "Đóng trạng thái cổng"},
+    {"command": "gate_status", "description": "Xem trạng thái cổng"},
+    {"command": "mine", "description": "Thêm biển số whitelist mine"},
+    {"command": "staff", "description": "Thêm biển số whitelist staff"},
+    {"command": "reject", "description": "Từ chối biển số pending"},
+    {"command": "person_add", "description": "Thêm person_identity"},
+    {"command": "person_list", "description": "Xem danh sách person_identity"},
+]
+
+
 def normalize_plate(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (text or "").upper())
 
@@ -1047,6 +1059,37 @@ def send_telegram_photo(chat_id: str, caption: str, image_bytes: bytes) -> bool:
         return False
 
 
+def configure_telegram_commands() -> None:
+    if not TELEGRAM_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setMyCommands"
+    payloads = [
+        {"commands": TELEGRAM_BOT_COMMANDS},
+        {"scope": {"type": "all_group_chats"}, "commands": TELEGRAM_BOT_COMMANDS},
+    ]
+    for payload in payloads:
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if not response.ok:
+                logger.warning("setMyCommands failed: %s", response.text)
+        except requests.RequestException as exc:
+            logger.warning("Telegram setMyCommands failed: %s", exc)
+
+
+def telegram_help_text() -> str:
+    return (
+        "📌 Lệnh điều khiển:\n"
+        "/gate_open - Mở trạng thái cổng\n"
+        "/gate_closed - Đóng trạng thái cổng\n"
+        "/gate_status - Xem trạng thái cổng\n"
+        "/mine <bienso> - Duyệt whitelist mine\n"
+        "/staff <bienso> - Duyệt whitelist staff\n"
+        "/reject <bienso> - Từ chối pending\n"
+        "/person_add <ten> - Thêm person_identity\n"
+        "/person_list - Xem danh sách person_identity"
+    )
+
+
 def is_plate_whitelisted(plate_norm: str) -> bool:
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -1885,6 +1928,10 @@ async def telegram_webhook(
     plate_raw = parts[1] if len(parts) > 1 else ""
     plate_norm = normalize_plate(plate_raw)
 
+    if cmd in {"/start", "/help"}:
+        send_telegram_message(chat_id, telegram_help_text())
+        return {"ok": True}
+
     if cmd in {"/gate_closed", "/gate_open", "/gate_status"}:
         if cmd == "/gate_closed":
             set_gate_state(1, user_label)
@@ -1992,6 +2039,7 @@ async def health():
 
 def main() -> None:
     init_db()
+    configure_telegram_commands()
     mqtt_thread = threading.Thread(target=start_mqtt_loop, daemon=True)
     mqtt_thread.start()
     alert_thread = threading.Thread(target=alert_loop, daemon=True)

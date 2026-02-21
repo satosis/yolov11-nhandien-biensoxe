@@ -47,10 +47,12 @@ Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự d�
 
 ## Lệnh Telegram (Quản lý)
 Sử dụng trong nhóm chat:
+- Bot sẽ tự đăng ký danh sách lệnh Telegram (menu `/`) khi `event_bridge` khởi động.
 - `/gate_closed`: Đặt trạng thái cửa là ĐÓNG.
 - `/gate_open`: Đặt trạng thái cửa là MỞ.
 - `/gate_status`: Xem trạng thái cửa + số người/xe.
 - `/report`: Xem báo cáo nhanh.
+- `/start` hoặc `/help`: Hiển thị menu lệnh nhanh.
 
 ## Báo cáo Tháng
 - Báo cáo dạng văn bản:

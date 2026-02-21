@@ -7,6 +7,8 @@ chmod +x install.sh
 ./install.sh
 ```
 
+`install.sh` hiện sẽ tự copy HACS vào `data/homeassistant/custom_components/hacs` (nếu tải được), để bạn chỉ cần restart Home Assistant và Add Integration `HACS`.
+
 Sau khi cài đặt xong, chạy ứng dụng:
 ```bash
 source venv/bin/activate

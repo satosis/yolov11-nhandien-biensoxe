@@ -192,6 +192,45 @@ def normalize_plate(plate_text):
 PYCONF
 }
 
+install_hacs() {
+  local ha_custom_dir="${ROOT_DIR}/data/homeassistant/custom_components"
+  local hacs_dir="${ha_custom_dir}/hacs"
+
+  if [[ -d "${hacs_dir}" ]]; then
+    log "HACS already installed at ${hacs_dir}."
+    return
+  fi
+
+  mkdir -p "${ha_custom_dir}"
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "${tmp_dir}"' RETURN
+
+  log "Installing HACS into Home Assistant config..."
+  if ! curl -fsSL "https://github.com/hacs/integration/releases/latest/download/hacs.zip" -o "${tmp_dir}/hacs.zip"; then
+    log "⚠️ Could not download HACS package. Skipping HACS install."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  if ! unzip -q "${tmp_dir}/hacs.zip" -d "${tmp_dir}"; then
+    log "⚠️ Could not extract HACS package. Skipping HACS install."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  if [[ ! -d "${tmp_dir}/hacs" ]]; then
+    log "⚠️ HACS package is invalid (missing hacs folder). Skipping HACS install."
+    rm -rf "${tmp_dir}"
+    return
+  fi
+
+  cp -r "${tmp_dir}/hacs" "${ha_custom_dir}/"
+  rm -rf "${tmp_dir}"
+  log "HACS installed: ${hacs_dir}"
+}
+
 setup_timezone() {
   if command -v timedatectl >/dev/null 2>&1; then
     sudo timedatectl set-timezone Asia/Ho_Chi_Minh || true
@@ -223,6 +262,7 @@ main() {
   
   ensure_dirs
   ensure_env
+  install_hacs
 
   # Sanity-check local python files to catch corrupted edits/merge issues
   if ! python3 -m py_compile "${ROOT_DIR}/core/config.py"; then
@@ -260,6 +300,9 @@ main() {
   echo "  python main.py"
   echo ""
   echo "Note: Ensure your Camera RTSP URL and other configs are set in .env"
+  echo "Home Assistant + HACS:"
+  echo "  1) docker compose restart homeassistant"
+  echo "  2) Vào Settings > Devices & Services > Add Integration > HACS"
 }
 
 main "$@"

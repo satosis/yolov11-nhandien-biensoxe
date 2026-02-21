@@ -102,5 +102,5 @@ Hành vi:
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
-- **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; nếu lỗi, chạy `git checkout -- core/config.py` (hoặc `git pull`) rồi chạy lại.
+- **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

@@ -22,6 +22,9 @@ services:
     shm_size: "256mb"
     depends_on:
       - mosquitto
+    env_file:
+      - ./.env
+      - ./.camera.env
     ports:
       - "5000:5000"
       - "8554:8554"
@@ -57,6 +60,7 @@ services:
       - mosquitto
     env_file:
       - ./.env
+      - ./.camera.env
     environment:
       - TZ=Asia/Ho_Chi_Minh
     volumes:

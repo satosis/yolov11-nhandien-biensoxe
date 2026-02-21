@@ -102,6 +102,7 @@ Hành vi:
 ## Xử lý sự cố (Troubleshooting)
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
+- **Cảnh báo `Snapshot fetch failed ... connection refused` lúc mới `./cmd up`**: thường do Frigate đang khởi động (`health: starting`). Đợi Frigate `healthy` rồi kiểm tra lại log.
 - **Lỗi export ONNX (`No module named onnxscript`)**: chạy lại `source venv/bin/activate && pip install -r requirements.txt` để cài `onnx` + `onnxscript`, rồi chạy lại export model.
 - **Cảnh báo ONNX opset/version converter**: script export mặc định dùng `opset=18` để tránh lỗi convert từ opset thấp (ví dụ lỗi `No Adapter To Version ... for Resize`). Có thể chạy tay: `python3 deploy/utils/export_model.py models/bien_so_xe.pt onnx 18`.
 - **Cảnh báo `onnxruntime ... GPU device discovery failed` trên Orange Pi CPU-only**: đây là cảnh báo phụ khi optimize/simplify ONNX, không làm export fail. Script hiện mặc định `simplify=False` cho ONNX để giảm cảnh báo này; nếu cần tối ưu thêm thì bật `ONNX_SIMPLIFY=1` trước khi export.

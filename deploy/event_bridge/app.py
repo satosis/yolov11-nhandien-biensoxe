@@ -1868,15 +1868,15 @@ def on_mqtt_message(client, userdata, msg):
 
 def start_mqtt_loop() -> None:
     global mqtt_client
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client = client
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
     client.on_message = on_mqtt_message
 
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
             logger.info("MQTT connected")
             client.subscribe(MQTT_TOPIC)
             for topic in COMMAND_TOPICS:
@@ -1884,10 +1884,10 @@ def start_mqtt_loop() -> None:
             publish_discovery()
             publish_state()
         else:
-            logger.warning("MQTT connect failed: %s", rc)
+            logger.warning("MQTT connect failed: %s", reason_code)
 
-    def on_disconnect(client, userdata, rc):
-        logger.warning("MQTT disconnected: %s", rc)
+    def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+        logger.warning("MQTT disconnected: %s", reason_code)
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect

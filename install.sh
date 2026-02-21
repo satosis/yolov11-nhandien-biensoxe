@@ -240,6 +240,21 @@ install_hacs() {
   log "HACS installed: ${hacs_dir}"
 }
 
+
+ensure_homeassistant_permissions() {
+  local ha_dir="${ROOT_DIR}/data/homeassistant"
+
+  mkdir -p "${ha_dir}"
+
+  if [[ -w "${ha_dir}" ]]; then
+    return
+  fi
+
+  log "Fixing ownership for ${ha_dir} ..."
+  require_sudo
+  sudo chown -R "${RUN_USER}:${RUN_USER}" "${ha_dir}" || true
+}
+
 setup_timezone() {
   if command -v timedatectl >/dev/null 2>&1; then
     sudo timedatectl set-timezone Asia/Ho_Chi_Minh || true
@@ -271,6 +286,7 @@ main() {
   
   ensure_dirs
   ensure_env
+  ensure_homeassistant_permissions
   install_hacs
 
   # Sanity-check local python files to catch corrupted edits/merge issues

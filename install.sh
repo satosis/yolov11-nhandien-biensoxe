@@ -125,15 +125,20 @@ start_docker_stack() {
   log "Starting new Docker stack..."
   local compose_log
   compose_log="$(mktemp)"
+  local up_ok=1
 
   if ! compose_up_with_capture "${compose_log}"; then
+    up_ok=0
     cat "${compose_log}" || true
 
     if is_shim_segfault_error "${compose_log}"; then
       log "⚠️ Detected Docker shim/runtime segfault. Restarting Docker daemon and retrying once..."
       sudo systemctl restart docker || true
       sleep 3
-      if ! compose_up_with_capture "${compose_log}"; then
+      if compose_up_with_capture "${compose_log}"; then
+        up_ok=1
+      else
+        up_ok=0
         cat "${compose_log}" || true
         log "❌ Retry failed after Docker restart."
         log "Hint: this is usually a Docker/Kernel runtime issue on ARM. Try:"
@@ -142,13 +147,20 @@ start_docker_stack() {
     fi
   fi
 
+  if [[ "${up_ok}" -ne 1 ]]; then
+    log "❌ docker compose up failed. Recent compose status:"
+    sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    rm -f "${compose_log}"
+    return 1
+  fi
+
   local rc=0
   if ! sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps >/dev/null 2>&1; then
     rc=1
   fi
 
   if [[ "${rc}" -ne 0 ]]; then
-    log "❌ docker compose up failed. Recent compose status:"
+    log "❌ docker compose status check failed after startup."
     sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
     rm -f "${compose_log}"
     return 1
@@ -158,6 +170,18 @@ start_docker_stack() {
   running_count="$(sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps --status running --services 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "${running_count}" == "0" ]]; then
     log "❌ Docker stack started with zero running containers."
+    sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
+    rm -f "${compose_log}"
+    return 1
+  fi
+
+  local expected_services running_services missing_services
+  expected_services="$(sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" config --services 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | sort -u)"
+  running_services="$(sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps --status running --services 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | sort -u)"
+  missing_services="$(comm -23 <(printf '%s\n' "${expected_services}") <(printf '%s\n' "${running_services}") | sed '/^$/d' || true)"
+
+  if [[ -n "${missing_services}" ]]; then
+    log "❌ Docker stack is partially up. Missing running services: $(echo "${missing_services}" | tr '\n' ' ' | sed 's/[[:space:]]\+$//')"
     sudo docker compose -f "${ROOT_DIR}/docker-compose.yml" ps -a || true
     rm -f "${compose_log}"
     return 1

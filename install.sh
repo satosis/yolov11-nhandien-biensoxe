@@ -82,6 +82,21 @@ ensure_docker_group() {
 }
 
 
+cleanup_old_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    return
+  fi
+
+  log "Cleaning up old Docker containers/images/volumes before new deployment..."
+  require_sudo
+
+  sudo docker ps -aq | xargs -r sudo docker rm -f || true
+  sudo docker images -aq | xargs -r sudo docker rmi -f || true
+  sudo docker volume ls -q | xargs -r sudo docker volume rm -f || true
+  sudo docker network prune -f || true
+  sudo docker builder prune -af || true
+}
+
 restore_core_config_fallback() {
   cat > "${ROOT_DIR}/core/config.py" <<'PYCONF'
 import json
@@ -330,6 +345,10 @@ main() {
   apt_install ca-certificates curl git jq sqlite3 unzip
 
   setup_timezone
+
+  install_docker
+  ensure_docker_group
+  cleanup_old_docker
   
   # Install Python dependencies
   install_python_deps

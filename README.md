@@ -9,6 +9,8 @@ chmod +x install.sh
 
 `install.sh` hiện sẽ tự copy HACS và Frigate Home Assistant integration vào `data/homeassistant/custom_components/` (nếu tải được), để bạn restart Home Assistant rồi Add Integration trong UI.
 
+⚠️ `install.sh` sẽ dọn toàn bộ Docker cũ (container/image/volume) trước khi chạy mới để tránh xung đột môi trường.
+
 Sau khi cài đặt xong, chạy ứng dụng:
 ```bash
 source venv/bin/activate

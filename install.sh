@@ -291,13 +291,28 @@ install_frigate_ha_integration() {
   tmp_dir="$(mktemp -d)"
 
   log "Installing Frigate Home Assistant integration..."
-  if ! curl -fsSL "https://github.com/blakeblackshear/frigate-hass-integration/archive/refs/heads/main.zip" -o "${tmp_dir}/frigate-ha.zip"; then
-    log "⚠️ Could not download Frigate HA integration. Skipping install."
+  local frigate_zip="${tmp_dir}/frigate-ha.zip"
+  local downloaded=0
+  local frigate_urls=(
+    "https://github.com/blakeblackshear/frigate-hass-integration/archive/refs/heads/main.zip"
+    "https://github.com/blakeblackshear/frigate-hass-integration/archive/refs/heads/master.zip"
+    "https://github.com/blakeblackshear/frigate-hass-integration/releases/latest/download/frigate-hass-integration.zip"
+    "https://codeload.github.com/blakeblackshear/frigate-hass-integration/zip/refs/heads/main"
+    "https://codeload.github.com/blakeblackshear/frigate-hass-integration/zip/refs/heads/master"
+  )
+  for url in "${frigate_urls[@]}"; do
+    if curl -fsSL "${url}" -o "${frigate_zip}"; then
+      downloaded=1
+      break
+    fi
+  done
+  if [[ "${downloaded}" -ne 1 ]]; then
+    log "⚠️ Could not download Frigate HA integration from known URLs. Skipping install."
     rm -rf "${tmp_dir}"
     return
   fi
 
-  if ! unzip -q "${tmp_dir}/frigate-ha.zip" -d "${tmp_dir}"; then
+  if ! unzip -q "${frigate_zip}" -d "${tmp_dir}"; then
     log "⚠️ Could not extract Frigate HA integration package. Skipping install."
     rm -rf "${tmp_dir}"
     return

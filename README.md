@@ -119,5 +119,6 @@ Hành vi:
 - **Lỗi `Permission denied` khi cài HACS (`data/homeassistant/custom_components`)**: sửa quyền rồi chạy lại install: `sudo chown -R $USER:$USER data/homeassistant && ./install.sh`.
 - **Lỗi `HACS package is invalid (missing custom_components/hacs)`**: gói HACS thay đổi cấu trúc theo phiên bản; installer mới đã tự dò đúng thư mục. Chạy lại `./install.sh`.
 - **Frigate không xuất hiện trong Add Integration**: chạy lại `./install.sh`, sau đó `docker compose ps` để chắc `homeassistant` đang `Up`, đợi 30-60 giây và refresh trình duyệt HA.
+- **Lỗi `Could not download Frigate HA integration` / `curl 404`**: installer mới đã tự thử nhiều URL fallback (main/master/release/codeload). Chạy lại `./install.sh` rồi kiểm tra lại.
 - **Lỗi `This site can't be reached` (HA 8123 refused)**: chạy `docker compose ps` và `docker compose logs --tail=200 homeassistant` để kiểm tra container Home Assistant có đang chạy/crash không; sau đó chạy lại `./install.sh` để stack được `up -d --build` tự động.
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

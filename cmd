@@ -47,6 +47,8 @@ case "${1:-}" in
         echo "[cmd] ⚠️ Cannot resolve CAMERA_IP from CAMERA_MAC. Continue startup with existing RTSP_URL/.camera.env."
       fi
     fi
+    echo "[cmd] Building latest event_bridge image..."
+    docker compose build event_bridge
     docker compose up -d
     ;;
   down)

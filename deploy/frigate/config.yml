@@ -18,11 +18,11 @@ cameras:
     ffmpeg:
       inputs:
         # Main stream for recording
-        - path: rtsp://{RTSP_USER}:{RTSP_PASS}@{CAMERA_IP}:554/cam/realmonitor?channel=1&subtype=0
+        - path: rtsp://<USER>:<PASS>@{CAMERA_IP}:554/cam/realmonitor?channel=1&subtype=0
           roles:
             - record
         # Sub stream for detection (lighter)
-        - path: rtsp://{RTSP_USER}:{RTSP_PASS}@{CAMERA_IP}:554/cam/realmonitor?channel=1&subtype=1
+        - path: rtsp://<USER>:<PASS>@{CAMERA_IP}:554/cam/realmonitor?channel=1&subtype=1
           roles:
             - detect
     detect:

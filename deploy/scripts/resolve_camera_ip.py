@@ -6,14 +6,13 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import re
+import socket
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.parse import urlsplit
 
 
 MAC_RE = re.compile(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}")
-IP_RE = re.compile(r"\b(\d+\.\d+\.\d+\.\d+)\b")
 
 
 def normalize_mac(value: str) -> str:
@@ -50,11 +49,10 @@ def run(cmd: list[str]) -> str:
 
 
 def find_ip_for_mac(mac: str) -> str | None:
-    outputs = [run(["ip", "neigh"]), run(["arp", "-an"]), run(["cat", "/proc/net/arp"])]
+    outputs = [run(["ip", "neigh"]), run(["arp", "-an"])]
     patterns = [
         re.compile(r"(?P<ip>\d+\.\d+\.\d+\.\d+).*\blladdr\s+(?P<mac>[0-9a-f:]{17})", re.I),
         re.compile(r"\((?P<ip>\d+\.\d+\.\d+\.\d+)\)\s+at\s+(?P<mac>[0-9a-f:]{17})", re.I),
-        re.compile(r"(?P<ip>\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+(?P<mac>[0-9a-f:]{17})", re.I),
     ]
 
     for output in outputs:
@@ -69,90 +67,27 @@ def find_ip_for_mac(mac: str) -> str | None:
     return None
 
 
-def parse_ipv4_network(candidate: str) -> ipaddress.IPv4Network | None:
-    try:
-        return ipaddress.ip_network(candidate, strict=False)
-    except ValueError:
+def discover_local_network() -> ipaddress.IPv4Network | None:
+    output = run(["ip", "-4", "route", "show", "default"])
+    src_match = re.search(r"\bsrc\s+(\d+\.\d+\.\d+\.\d+)", output)
+    if not src_match:
         return None
-
-
-def network_from_ip(ip_text: str) -> ipaddress.IPv4Network | None:
-    try:
-        ip = ipaddress.ip_address(ip_text)
-    except ValueError:
-        return None
-    if not isinstance(ip, ipaddress.IPv4Address):
-        return None
-    return ipaddress.ip_network(f"{ip}/24", strict=False)
-
-
-def discover_candidate_networks(data: dict[str, str]) -> list[ipaddress.IPv4Network]:
-    candidates: list[ipaddress.IPv4Network] = []
-
-    # 1) user-provided subnet has highest priority
-    subnet = data.get("CAMERA_IP_SUBNET", "").strip()
-    if subnet:
-        network = parse_ipv4_network(subnet)
-        if network:
-            candidates.append(network)
-
-    # 2) current IPs on physical interfaces (prefer private LAN over tailscale/docker)
-    addr_output = run(["ip", "-4", "-o", "addr", "show", "scope", "global"])
-    ignored_if_prefixes = ("docker", "br-", "veth", "tailscale", "zt", "tun", "wg", "lo")
-    physical: list[ipaddress.IPv4Network] = []
-    fallback: list[ipaddress.IPv4Network] = []
-
-    for line in addr_output.splitlines():
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        iface = parts[1]
-        cidr = parts[3]
-        network = parse_ipv4_network(cidr)
-        if not network:
-            continue
-        fallback.append(network)
-        if iface.startswith(ignored_if_prefixes):
-            continue
-        if network.network_address.is_private:
-            physical.append(network)
-
-    candidates.extend(physical or fallback)
-
-    # 3) derive /24 from host in RTSP_URL (legacy static URL)
-    rtsp_url = data.get("RTSP_URL", "").strip()
-    if rtsp_url:
-        host = urlsplit(rtsp_url).hostname
-        if host:
-            network = network_from_ip(host)
-            if network:
-                candidates.append(network)
-
-    # 4) default route source as last resort
-    route_output = run(["ip", "-4", "route", "show", "default"])
-    for ip_text in IP_RE.findall(route_output):
-        network = network_from_ip(ip_text)
-        if network:
-            candidates.append(network)
-
-    # dedupe while preserving order
-    unique: list[ipaddress.IPv4Network] = []
-    seen: set[str] = set()
-    for network in candidates:
-        key = str(network)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(network)
-    return unique
+    src_ip = ipaddress.ip_address(src_match.group(1))
+    return ipaddress.ip_network(f"{src_ip}/24", strict=False)
 
 
 def touch_hosts(network: ipaddress.IPv4Network) -> None:
     hosts = [str(ip) for ip in network.hosts()]
 
     def hit(ip: str) -> None:
-        # ping is more reliable than TCP 554 probing for ARP refresh.
-        run(["ping", "-c", "1", "-W", "1", ip])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.15)
+        try:
+            sock.connect((ip, 554))
+        except Exception:
+            pass
+        finally:
+            sock.close()
 
     with ThreadPoolExecutor(max_workers=64) as ex:
         list(ex.map(hit, hosts))
@@ -166,26 +101,6 @@ def update_or_insert(lines: list[str], key: str, value: str) -> list[str]:
             return lines
     lines.append(new_line)
     return lines
-
-
-def resolve_rtsp_credentials(data: dict[str, str]) -> tuple[str, str]:
-    """Resolve RTSP credentials from explicit env or fallback RTSP_URL."""
-    rtsp_user = data.get("RTSP_USER", "").strip()
-    rtsp_pass = data.get("RTSP_PASS", "").strip()
-
-    if rtsp_user and rtsp_pass:
-        return rtsp_user, rtsp_pass
-
-    rtsp_url = data.get("RTSP_URL", "").strip()
-    if not rtsp_url:
-        return rtsp_user, rtsp_pass
-
-    parsed = urlsplit(rtsp_url)
-    if not rtsp_user and parsed.username:
-        rtsp_user = parsed.username
-    if not rtsp_pass and parsed.password:
-        rtsp_pass = parsed.password
-    return rtsp_user, rtsp_pass
 
 
 def main() -> int:
@@ -215,33 +130,33 @@ def main() -> int:
 
     camera_ip = find_ip_for_mac(camera_mac)
     if not camera_ip:
-        networks = discover_candidate_networks(data)
-        for network in networks:
+        subnet = data.get("CAMERA_IP_SUBNET", "").strip()
+        network = None
+        if subnet:
+            try:
+                network = ipaddress.ip_network(subnet, strict=False)
+            except ValueError:
+                print(f"[camera-ip] Invalid CAMERA_IP_SUBNET: {subnet}")
+                return 1
+        else:
+            network = discover_local_network()
+
+        if network:
             if not args.quiet:
                 print(f"[camera-ip] scanning {network} to refresh ARP cache...")
             touch_hosts(network)
             camera_ip = find_ip_for_mac(camera_mac)
-            if camera_ip:
-                break
 
     if not camera_ip:
         print("[camera-ip] Cannot resolve CAMERA_IP from CAMERA_MAC.")
         print("[camera-ip] Ensure camera is connected to same LAN.")
-        print("[camera-ip] Tip: set CAMERA_IP_SUBNET in .env (e.g. 10.115.215.0/24) to improve discovery.")
         return 1
 
     out_lines = load_env_lines(out_env_path)
     out_lines = update_or_insert(out_lines, "CAMERA_IP", camera_ip)
-    rtsp_user, rtsp_pass = resolve_rtsp_credentials(data)
-    out_lines = update_or_insert(out_lines, "RTSP_USER", rtsp_user)
-    out_lines = update_or_insert(out_lines, "RTSP_PASS", rtsp_pass)
     out_env_path.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
     if not args.quiet:
         print(f"[camera-ip] CAMERA_IP={camera_ip} written to {out_env_path} (from MAC {camera_mac})")
-        if rtsp_user and rtsp_pass:
-            print("[camera-ip] RTSP_USER/RTSP_PASS populated for Frigate env substitution")
-        else:
-            print("[camera-ip] WARNING: RTSP_USER/RTSP_PASS are empty; Frigate stream auth may fail")
     return 0
 
 

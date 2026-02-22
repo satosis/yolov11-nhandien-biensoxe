@@ -36,12 +36,10 @@ Sửa trong `.env`:
 - `CAMERA_MAC`: MAC cố định của camera (khuyến nghị dùng để tự động tìm IP).
 - `CAMERA_IP_SUBNET`: subnet nội bộ để quét khi cần (ví dụ `10.115.215.0/24`).
 - `CAMERA_IP`: không cần khai báo thủ công trong `.env` (sẽ tự tạo runtime từ `CAMERA_MAC`).
-- `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera (khuyến nghị `@{CAMERA_IP}`; nếu còn để IP cũ, app sẽ tự thay host theo `CAMERA_IP` runtime).
-- `RTSP_USER` và `RTSP_PASS`: tài khoản đăng nhập camera cho Frigate (được dùng trực tiếp trong `deploy/frigate/config.yml`).
+- `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera.
 - `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
 
 Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
-`main.py` cũng nạp `.camera.env` và thay `{CAMERA_IP}` trong `RTSP_URL`, nên bạn chỉ cần giữ `CAMERA_MAC` ổn định trong `.env`.
 Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
 
 ## Tính năng Đếm Người & Xe

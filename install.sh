@@ -44,6 +44,17 @@ docker_runtime_healthy() {
   cat "${runtime_log}" || true
   if is_shim_segfault_error "${runtime_log}"; then
     log "⚠️ Docker runtime preflight failed with shim segfault signature."
+    log "⚠️ Attempting automatic docker packages upgrade to fix segfault..."
+    sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
+    sudo systemctl restart docker || true
+    sleep 3
+    if sudo docker run --rm --pull=never hello-world >/dev/null 2>&1; then
+        log "✅ Docker runtime fixed after upgrade."
+        rm -f "${runtime_log}"
+        return 0
+    else
+        log "❌ Docker runtime still unhealthy after upgrade. Reboot might be required."
+    fi
   else
     log "⚠️ Docker runtime preflight failed before compose startup."
   fi
@@ -166,7 +177,9 @@ start_docker_stack() {
     cat "${compose_log}" || true
 
     if is_shim_segfault_error "${compose_log}"; then
-      log "⚠️ Detected Docker shim/runtime segfault. Restarting Docker daemon and retrying once..."
+      log "⚠️ Detected Docker shim/runtime segfault during compose up."
+      log "⚠️ Attempting automatic docker packages upgrade to fix segfault..."
+      sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
       sudo systemctl restart docker || true
       sleep 3
       if compose_up_with_capture "${compose_log}"; then
@@ -174,9 +187,8 @@ start_docker_stack() {
       else
         up_ok=0
         cat "${compose_log}" || true
-        log "❌ Retry failed after Docker restart."
-        log "Hint: this is usually a Docker/Kernel runtime issue on ARM. Try:"
-        log "  sudo apt-get update && sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io"
+        log "❌ Retry failed after Docker upgrade."
+        log "Hint: A reboot of the Orange Pi might be required to apply new Kernel modules."
       fi
     fi
   fi

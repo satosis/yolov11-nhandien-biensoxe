@@ -7,6 +7,7 @@ import os
 import time
 import threading
 import uuid
+import numpy as np
 from datetime import datetime
 from ultralytics import YOLO
 
@@ -113,6 +114,10 @@ notification_sent = False
 signal_loss_alerted = False
 tracked_ids = {}
 
+# --- Biến cho Optical Flow PTZ ---
+frame_count = 0
+prev_gray = None
+
 # ========== MAIN LOOP ==========
 while True:
     if ocr_mode == "image":
@@ -133,6 +138,29 @@ while True:
 
     signal_loss_alerted = False
     last_frame_time = time.time()
+    frame_count += 1
+
+    # 0. CHỐNG XOAY APP IMOU: Nhận diện bằng Optical Flow
+    if frame_count % 5 == 0 and mqtt_manager.ocr_enabled:
+        small_frame = cv2.resize(frame, (640, int(640 * frame.shape[0] / frame.shape[1])))
+        gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
+        
+        if prev_gray is not None:
+            p0 = cv2.goodFeaturesToTrack(prev_gray, mask=None, maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
+            if p0 is not None:
+                p1, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+                if p1 is not None and st is not None:
+                    good_new = p1[st.flatten() == 1]
+                    good_old = p0[st.flatten() == 1]
+                    if len(good_new) > 10:
+                        dx = good_new[:, 0] - good_old[:, 0]
+                        dy = good_new[:, 1] - good_old[:, 1]
+                        movement = float(np.sqrt(np.median(dx)**2 + np.median(dy)**2))
+                        if movement > 3.0:
+                            print(f"🚨 Phát hiện xoay tay bằng Imou App ({movement:.1f}px). Đang Tạm Dừng AI...")
+                            mqtt_manager.client.publish("shed/cmd/ptz_panorama", "1")
+                            mqtt_manager.ocr_enabled = False # Tắt luôn OCR local chống lag delay từ server
+        prev_gray = gray.copy()
 
     # 1. Nhận diện người/xe tải (YOLO tracking)
     results = general_model.track(frame, persist=True, verbose=False)

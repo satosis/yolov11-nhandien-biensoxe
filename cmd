@@ -9,7 +9,7 @@ usage() {
 Usage: ./cmd <command> [args]
 
 Commands:
-  up                Start services (docker compose up -d)
+  up                Resolve CAMERA_IP from CAMERA_MAC (runtime), then start services
   down              Stop services (docker compose down)
   logs [service]    Tail logs (default: all services)
   stats             Show event counts by label
@@ -38,7 +38,32 @@ ensure_db() {
 
 case "${1:-}" in
   up)
+    # docker compose fails if an env_file path does not exist.
+    # Ensure runtime camera env file is always present.
+    touch "${BASE_DIR}/.camera.env"
+
+    if [[ -f "${BASE_DIR}/.env" ]]; then
+      if ! python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"; then
+        echo "[cmd] ⚠️ Cannot resolve CAMERA_IP from CAMERA_MAC. Continue startup with existing RTSP_URL/.camera.env."
+      fi
+    fi
+    echo "[cmd] Building latest event_bridge image..."
+    docker compose build event_bridge
     docker compose up -d
+    echo "[cmd] Waiting for Frigate health check..."
+    for _ in $(seq 1 30); do
+      status="$(docker compose ps --format json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); s=[x.get("Health","") for x in data if x.get("Service")=="frigate"]; print((s[0] if s else ""))' 2>/dev/null || true)"
+      if [[ "$status" == "healthy" ]]; then
+        echo "[cmd] ✅ Frigate is healthy."
+        break
+      fi
+      sleep 2
+    done
+
+    if [[ "$status" != "healthy" ]]; then
+      echo "[cmd] ⚠️ Frigate is not healthy yet (status: ${status:-unknown})."
+      echo "[cmd] Tip: run './cmd logs frigate' to inspect stream/connectivity errors."
+    fi
     ;;
   down)
     docker compose down

@@ -108,6 +108,18 @@ ptz_state_cache = {
 mqtt_client: mqtt.Client | None = None
 
 
+TELEGRAM_BOT_COMMANDS = [
+    {"command": "gate_open", "description": "Mở trạng thái cổng"},
+    {"command": "gate_closed", "description": "Đóng trạng thái cổng"},
+    {"command": "gate_status", "description": "Xem trạng thái cổng"},
+    {"command": "mine", "description": "Thêm biển số whitelist mine"},
+    {"command": "staff", "description": "Thêm biển số whitelist staff"},
+    {"command": "reject", "description": "Từ chối biển số pending"},
+    {"command": "person_add", "description": "Thêm person_identity"},
+    {"command": "person_list", "description": "Xem danh sách person_identity"},
+]
+
+
 def normalize_plate(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", (text or "").upper())
 
@@ -1047,6 +1059,37 @@ def send_telegram_photo(chat_id: str, caption: str, image_bytes: bytes) -> bool:
         return False
 
 
+def configure_telegram_commands() -> None:
+    if not TELEGRAM_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setMyCommands"
+    payloads = [
+        {"commands": TELEGRAM_BOT_COMMANDS},
+        {"scope": {"type": "all_group_chats"}, "commands": TELEGRAM_BOT_COMMANDS},
+    ]
+    for payload in payloads:
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            if not response.ok:
+                logger.warning("setMyCommands failed: %s", response.text)
+        except requests.RequestException as exc:
+            logger.warning("Telegram setMyCommands failed: %s", exc)
+
+
+def telegram_help_text() -> str:
+    return (
+        "📌 Lệnh điều khiển:\n"
+        "/gate_open - Mở trạng thái cổng\n"
+        "/gate_closed - Đóng trạng thái cổng\n"
+        "/gate_status - Xem trạng thái cổng\n"
+        "/mine <bienso> - Duyệt whitelist mine\n"
+        "/staff <bienso> - Duyệt whitelist staff\n"
+        "/reject <bienso> - Từ chối pending\n"
+        "/person_add <ten> - Thêm person_identity\n"
+        "/person_list - Xem danh sách person_identity"
+    )
+
+
 def is_plate_whitelisted(plate_norm: str) -> bool:
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -1725,7 +1768,10 @@ def alert_loop() -> None:
                         snapshot_path = save_snapshot(snapshot)
                         sent = send_telegram_photo(CHAT_ID_IMPORTANT, caption, snapshot)
                     if not sent:
-                        send_telegram_message(CHAT_ID_IMPORTANT, caption)
+                        logger.warning(
+                            "Important alert skipped because camera snapshot is unavailable."
+                        )
+                        continue
                     insert_gate_alert_event(gate_closed, people_count, "no_one_gate_open", snapshot_path)
                     update_alert_last(ALERT_KEY_NO_ONE_GATE_OPEN, now.isoformat())
         except Exception as exc:
@@ -1825,15 +1871,15 @@ def on_mqtt_message(client, userdata, msg):
 
 def start_mqtt_loop() -> None:
     global mqtt_client
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client = client
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
     client.on_message = on_mqtt_message
 
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
             logger.info("MQTT connected")
             client.subscribe(MQTT_TOPIC)
             for topic in COMMAND_TOPICS:
@@ -1841,10 +1887,10 @@ def start_mqtt_loop() -> None:
             publish_discovery()
             publish_state()
         else:
-            logger.warning("MQTT connect failed: %s", rc)
+            logger.warning("MQTT connect failed: %s", reason_code)
 
-    def on_disconnect(client, userdata, rc):
-        logger.warning("MQTT disconnected: %s", rc)
+    def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+        logger.warning("MQTT disconnected: %s", reason_code)
 
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
@@ -1884,6 +1930,10 @@ async def telegram_webhook(
     cmd = parts[0].split("@")[0].lower()
     plate_raw = parts[1] if len(parts) > 1 else ""
     plate_norm = normalize_plate(plate_raw)
+
+    if cmd in {"/start", "/help"}:
+        send_telegram_message(chat_id, telegram_help_text())
+        return {"ok": True}
 
     if cmd in {"/gate_closed", "/gate_open", "/gate_status"}:
         if cmd == "/gate_closed":
@@ -1992,6 +2042,7 @@ async def health():
 
 def main() -> None:
     init_db()
+    configure_telegram_commands()
     mqtt_thread = threading.Thread(target=start_mqtt_loop, daemon=True)
     mqtt_thread.start()
     alert_thread = threading.Thread(target=alert_loop, daemon=True)

@@ -42,6 +42,20 @@ case "${1:-}" in
       python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"
     fi
     docker compose up -d
+    echo "[cmd] Waiting for Frigate health check..."
+    for _ in $(seq 1 30); do
+      status="$(docker compose ps --format json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); s=[x.get("Health","") for x in data if x.get("Service")=="frigate"]; print((s[0] if s else ""))' 2>/dev/null || true)"
+      if [[ "$status" == "healthy" ]]; then
+        echo "[cmd] ✅ Frigate is healthy."
+        break
+      fi
+      sleep 2
+    done
+
+    if [[ "$status" != "healthy" ]]; then
+      echo "[cmd] ⚠️ Frigate is not healthy yet (status: ${status:-unknown})."
+      echo "[cmd] Tip: run './cmd logs frigate' to inspect stream/connectivity errors."
+    fi
     ;;
   down)
     docker compose down

@@ -44,8 +44,12 @@ def create_api_server(streamer, get_state_fn, mqtt_manager):
                         <div class="card"><h3>Camera</h3><p id="ptz-mode">...</p></div>
                     </div>
                     <div style="margin-top: 20px;">
-                        <button onclick="ptzCmd('panorama')" style="padding: 10px 20px; cursor: pointer; background: #00bcd4; border: none; border-radius: 5px; color: white;">🔭 Xoay Toàn Cảnh</button>
-                        <button onclick="ptzCmd('gate')" style="padding: 10px 20px; cursor: pointer; background: #ff9800; border: none; border-radius: 5px; color: white;">🏠 Về Cổng OCR</button>
+                        <button onclick="ptzCmd('panorama')" style="padding: 10px 20px; cursor: pointer; background: #00bcd4; border: none; border-radius: 5px; color: white; font-weight: bold; margin-right: 10px;">
+                            ⏸ Tạm dừng AI 5 Phút (Để dùng App Imou)
+                        </button>
+                        <button onclick="ptzCmd('gate')" style="padding: 10px 20px; cursor: pointer; background: #ff9800; border: none; border-radius: 5px; color: white; font-weight: bold;">
+                            🏠 Về Cổng OCR Ngay
+                        </button>
                     </div>
                     <div class="logs">
                         <h3>Hoạt động gần đây:</h3>

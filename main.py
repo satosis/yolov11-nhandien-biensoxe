@@ -150,8 +150,8 @@ while True:
             if p0 is not None:
                 p1, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
                 if p1 is not None and st is not None:
-                    good_new = p1[st.flatten() == 1]
-                    good_old = p0[st.flatten() == 1]
+                    good_new = p1[st.flatten() == 1].reshape(-1, 2)
+                    good_old = p0[st.flatten() == 1].reshape(-1, 2)
                     if len(good_new) > 10:
                         dx = good_new[:, 0] - good_old[:, 0]
                         dy = good_new[:, 1] - good_old[:, 1]

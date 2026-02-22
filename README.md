@@ -36,12 +36,10 @@ Sửa trong `.env`:
 - `CAMERA_MAC`: MAC cố định của camera (khuyến nghị dùng để tự động tìm IP).
 - `CAMERA_IP_SUBNET`: subnet nội bộ để quét khi cần (ví dụ `10.115.215.0/24`).
 - `CAMERA_IP`: không cần khai báo thủ công trong `.env` (sẽ tự tạo runtime từ `CAMERA_MAC`).
-- `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera (khuyến nghị `@{CAMERA_IP}`; nếu còn để IP cũ, app sẽ tự thay host theo `CAMERA_IP` runtime).
-- `RTSP_USER` và `RTSP_PASS`: tài khoản đăng nhập camera cho Frigate (được dùng trực tiếp trong `deploy/frigate/config.yml`).
+- `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera.
 - `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
 
 Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
-`main.py` cũng nạp `.camera.env` và thay `{CAMERA_IP}` trong `RTSP_URL`, nên bạn chỉ cần giữ `CAMERA_MAC` ổn định trong `.env`.
 Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
 
 ## Tính năng Đếm Người & Xe
@@ -126,5 +124,5 @@ Hành vi:
 - **Khi cài integration từ GitHub**: installer đã ẩn lỗi 404 của từng URL fallback để tránh gây hiểu nhầm; chỉ báo lỗi khi mọi URL đều thất bại.
 - **Lỗi `This site can't be reached` (HA 8123 refused)**: chạy `docker compose ps` và `docker compose logs --tail=200 homeassistant` để kiểm tra container Home Assistant có đang chạy/crash không; sau đó chạy lại `./install.sh` để stack được `up -d --build` tự động.
 - **`install.sh` báo hoàn tất nhưng không có container chạy**: bản mới sẽ fail-fast nếu `docker compose up` lỗi, running = 0, hoặc stack chỉ lên một phần (thiếu service đang running). Kiểm tra `docker compose ps -a` và `docker compose logs --tail=200 frigate`.
-- **Lỗi Docker shim segfault (`unexpected fault address`, `failed to start shim`)**: `install.sh` sẽ preflight bằng `docker info` + `docker run hello-world`, tự restart Docker daemon và retry. Nếu chỉ lỗi thiếu image/registry (ví dụ `No such image: hello-world`), installer vẫn tiếp tục; chỉ dừng sớm khi phát hiện runtime segfault thật hoặc daemon không phản hồi.
+- **Lỗi Docker shim segfault (`unexpected fault address`, `failed to start shim`)**: `install.sh` sẽ chạy preflight `docker run --rm hello-world`, tự restart Docker daemon và retry. Nếu preflight vẫn fail, installer sẽ dừng sớm để tránh tạo stack nửa vời; khi đó reboot host rồi nâng cấp Docker/containerd (`sudo apt-get install --only-upgrade docker-ce docker-ce-cli containerd.io`).
 - **Lỗi Cửa cuốn**: Kiểm tra kết nối Tuya trong Home Assistant hoặc file `core/door_controller.py`.

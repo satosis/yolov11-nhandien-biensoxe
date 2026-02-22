@@ -36,15 +36,7 @@ docker_runtime_healthy() {
   runtime_log="$(mktemp)"
   require_sudo
 
-  # Quick daemon health check without requiring any local image.
-  if ! sudo docker info >/dev/null 2>&1; then
-    log "⚠️ Docker daemon is not responding to 'docker info'."
-    rm -f "${runtime_log}"
-    return 1
-  fi
-
-  # Runtime container-create check (captures shim/runtime faults on ARM hosts).
-  if sudo docker run --rm --pull=missing hello-world >"${runtime_log}" 2>&1; then
+  if sudo docker run --rm --pull=never hello-world >"${runtime_log}" 2>&1; then
     rm -f "${runtime_log}"
     return 0
   fi
@@ -52,19 +44,10 @@ docker_runtime_healthy() {
   cat "${runtime_log}" || true
   if is_shim_segfault_error "${runtime_log}"; then
     log "⚠️ Docker runtime preflight failed with shim segfault signature."
-    rm -f "${runtime_log}"
-    return 1
+  else
+    log "⚠️ Docker runtime preflight failed before compose startup."
   fi
 
-  # If this is only an image/pull/network issue, don't block compose startup.
-  if grep -qiE "No such image|pull access denied|toomanyrequests|i/o timeout|context deadline exceeded|TLS handshake timeout|lookup .* no such host" "${runtime_log}"; then
-    log "⚠️ Docker runtime probe could not fetch hello-world image (network/registry issue)."
-    log "⚠️ Continue with compose startup because Docker daemon is reachable."
-    rm -f "${runtime_log}"
-    return 0
-  fi
-
-  log "⚠️ Docker runtime preflight failed before compose startup."
   rm -f "${runtime_log}"
   return 1
 }

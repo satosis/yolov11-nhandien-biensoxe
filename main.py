@@ -295,9 +295,10 @@ while True:
     # Cập nhật Streamer
     streamer.update_frame(frame)
 
-    cv2.imshow("Smart Door System", frame)
-    if (cv2.waitKey(1) & 0xFF) == ord(" "):
-        break
+    # Disable GUI for headless Linux servers
+    # cv2.imshow("Smart Door System", frame)
+    # if (cv2.waitKey(1) & 0xFF) == ord(" "):
+    #     break
     if ocr_mode == "image":
         break
 

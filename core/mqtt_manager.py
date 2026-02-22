@@ -11,7 +11,7 @@ logger = logging.getLogger("mqtt_manager")
 
 class MQTTManager:
     def __init__(self, door_controller=None):
-        self.host = "mosquitto"
+        self.host = "127.0.0.1"
         self.port = 1883
         self.username = os.getenv("MQTT_USERNAME")
         self.password = os.getenv("MQTT_PASSWORD")

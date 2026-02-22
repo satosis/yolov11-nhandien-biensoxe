@@ -71,8 +71,12 @@ def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
     new_netloc = f"{auth}{camera_ip}{port}"
     return urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
 
+# Ép OpenCV dùng giao thức TCP để tránh rớt gói tin gây xám màn hình
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
-RTSP_URL = resolve_rtsp_url(_RTSP_URL_RAW, CAMERA_IP)
+_resolved_url = resolve_rtsp_url(_RTSP_URL_RAW, CAMERA_IP)
+RTSP_URL = _resolved_url.replace("subtype=0", "subtype=1") if "subtype=0" in _resolved_url else _resolved_url
+
 OCR_SOURCE = "rtsp"
 SIGNAL_LOSS_TIMEOUT = 30
 

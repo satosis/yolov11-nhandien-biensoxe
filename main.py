@@ -286,7 +286,8 @@ while True:
 
     # GUI
     door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
-    cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 2)
+    cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 5)
+    cv2.putText(frame, "[VACH DEM NGUOI]", (10, LINE_Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     cv2.putText(frame, f"T:{truck_count} P:{person_count} | {door_status}", (10, 40), 1, 2, (0, 0, 255), 2)
     x1, y1, x2, y2 = DOOR_ROI
     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)

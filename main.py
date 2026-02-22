@@ -256,9 +256,9 @@ while True:
                             else:
                                 print(f"✅ Xe quen: {plate_norm} -> MỞ CỬA")
                                 mqtt_manager.publish_trigger_open()
-                                cv2.putText(frame, "OPENING DOOR...", (px1, py1 - 30),
+                                cv2.putText(frame, "BIEN SO HOP LE - MO CUA!", (px1, py1 - 30),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                        cv2.putText(frame, plate_text, (px1, py1 - 10),
+                        cv2.putText(frame, f"BS: {plate_text}", (px1, py1 - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
                     cv2.rectangle(frame, (px1, py1), (px2, py2), (255, 0, 255), 2)
 

@@ -7,11 +7,6 @@ record:
   enabled: true
   retain:
     days: 0
-  events:
-    retain:
-      default: 30
-    pre_capture: 5
-    post_capture: 10
 
 cameras:
   imou_2k:

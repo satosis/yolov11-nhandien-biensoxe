@@ -1832,16 +1832,18 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         control_door(payload)
         return
     if topic == "shed/cmd/ptz_panorama":
-        if ptz_goto_preset(ONVIF_PRESET_PANORAMA):
-            prev_mode = get_ptz_state()["mode"]
-            set_ptz_state("panorama", 0, "ha", utc_now())
-            insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
+        ptz_goto_preset(ONVIF_PRESET_PANORAMA)
+        # Bắt buộc chuyển state để pause OCR bất kể ONVIF có lỗi hay không
+        prev_mode = get_ptz_state()["mode"]
+        set_ptz_state("panorama", 0, "ha", utc_now())
+        insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
         return
     if topic == "shed/cmd/ptz_gate":
-        if ptz_goto_preset(ONVIF_PRESET_GATE):
-            prev_mode = get_ptz_state()["mode"]
-            set_ptz_state("gate", 1, "ha", None)
-            insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        ptz_goto_preset(ONVIF_PRESET_GATE)
+        # Bắt buộc chuyển state để resume OCR bất kể ONVIF có lỗi hay không
+        prev_mode = get_ptz_state()["mode"]
+        set_ptz_state("gate", 1, "ha", None)
+        insert_ptz_event("set_gate", "manual", prev_mode, "gate")
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

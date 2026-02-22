@@ -117,6 +117,6 @@ def create_api_server(streamer, get_state_fn, mqtt_manager):
 
 
 def start_api_server(streamer, get_state_fn, mqtt_manager):
-    """Khởi chạy API server trên port 8000."""
+    """Khởi chạy API server trên port 8080."""
     create_api_server(streamer, get_state_fn, mqtt_manager)
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
+    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="warning")

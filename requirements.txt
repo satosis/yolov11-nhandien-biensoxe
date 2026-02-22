@@ -15,3 +15,5 @@ paho-mqtt==2.1.0
 onvif-zeep==0.2.12
 OPi.GPIO
 tinytuya
+onnx==1.17.0
+onnxscript>=0.1.0

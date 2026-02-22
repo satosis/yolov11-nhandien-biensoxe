@@ -1,11 +1,31 @@
-import os
 import json
 import logging
+import os
 import re
-from dotenv import load_dotenv
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
-# Load môi trường
-load_dotenv()
+
+
+def load_env_file(path: str, override: bool = False) -> None:
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if override or key not in os.environ:
+            os.environ[key] = value
+
+
+# Load môi trường (.env trước, rồi runtime .camera.env để override CAMERA_IP nếu có)
+load_env_file(".env")
+load_env_file(".camera.env", override=True)
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
 # --- Telegram ---
@@ -23,7 +43,36 @@ DOOR_MODEL_PATH = "./models/door_model.pt"
 
 # --- Detection ---
 LINE_Y = 300
-RTSP_URL = os.getenv("RTSP_URL", "")
+CAMERA_IP = os.getenv("CAMERA_IP", "")
+_RTSP_URL_RAW = os.getenv("RTSP_URL", "")
+
+
+def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:
+    if not rtsp_url or not camera_ip:
+        return rtsp_url
+    if "{CAMERA_IP}" in rtsp_url:
+        return rtsp_url.replace("{CAMERA_IP}", camera_ip)
+
+    parsed = urlsplit(rtsp_url)
+    if not parsed.scheme.startswith("rtsp"):
+        return rtsp_url
+
+    if not parsed.hostname:
+        return rtsp_url
+
+    auth = ""
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth += f":{parsed.password}"
+        auth += "@"
+
+    port = f":{parsed.port}" if parsed.port else ""
+    new_netloc = f"{auth}{camera_ip}{port}"
+    return urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+RTSP_URL = resolve_rtsp_url(_RTSP_URL_RAW, CAMERA_IP)
 OCR_SOURCE = "rtsp"
 SIGNAL_LOSS_TIMEOUT = 30
 
@@ -41,15 +90,17 @@ if os.path.exists(CONFIG_PATH):
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         config = json.load(f)
         authorized_plates = [p.upper().replace(" ", "") for p in config.get("plates", [])]
-        print(f"✅ Loaded {len(authorized_plates)} authorized plates: {authorized_plates}")
+        logging.getLogger(__name__).info("Loaded %d authorized plates", len(authorized_plates))
 
 # --- Face recognition (optional) ---
 try:
     import face_recognition
+
     FACE_RECOGNITION_AVAILABLE = True
 except ImportError:
     FACE_RECOGNITION_AVAILABLE = False
 
+
 # --- Utility ---
 def normalize_plate(plate_text):
-    return re.sub(r'[^A-Z0-9]', '', plate_text.upper())
+    return re.sub(r"[^A-Z0-9]", "", plate_text.upper())

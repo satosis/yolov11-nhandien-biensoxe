@@ -42,6 +42,21 @@ Sửa trong `.env`:
 Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
 Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
 
+
+## Phát hiện camera bị lệch góc (so với ban đầu)
+- Hệ thống tự chụp một **baseline frame** khi camera ổn định.
+- Mỗi vài frame sẽ so sánh frame hiện tại với baseline bằng **ORB feature matching + RANSAC affine**.
+- Nếu vượt ngưỡng liên tiếp (`rotation`, `translation`, `inlier ratio`, `scale`) thì tạo sự kiện `CAMERA_SHIFT` và gửi cảnh báo Telegram.
+- Khi camera quay về gần góc cũ, hệ thống ghi `CAMERA_SHIFT_RECOVERED`.
+
+Các biến tinh chỉnh trong `.env`:
+- `CAMERA_SHIFT_CHECK_EVERY_FRAMES`
+- `CAMERA_SHIFT_MIN_INLIER_RATIO`
+- `CAMERA_SHIFT_MAX_ROTATION_DEG`
+- `CAMERA_SHIFT_MAX_TRANSLATION_PX`
+- `CAMERA_SHIFT_MAX_SCALE_DELTA`
+- `CAMERA_SHIFT_ALERT_CONSECUTIVE`
+
 ## Tính năng Đếm Người & Xe
 - Hệ thống tự động đếm số lượng người và xe tải ra/vào.
 - Logic "Gate Logic": Tự động trừ số người khi có xe đi ra (tài xế).

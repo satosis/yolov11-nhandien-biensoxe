@@ -26,14 +26,44 @@ views:
             name: Gate Closed
             entity: button.shed_gate_closed
 
-      - type: horizontal-stack
+      - type: entities
+        title: Điều khiển camera Imou
+        show_header_toggle: false
+        entities:
+          - entity: sensor.shed_ptz_mode
+            name: Chế độ PTZ
+          - entity: binary_sensor.shed_ocr_enabled
+            name: OCR đang bật
+          - entity: binary_sensor.shed_camera_shift_motion
+            name: Cảnh báo lệch camera
+          - entity: sensor.shed_camera_shift_status
+            name: Trạng thái camera shift
+          - entity: sensor.shed_camera_shift_last_event
+            name: Sự kiện camera gần nhất
+
+      - type: grid
+        title: Nút điều khiển Imou
+        square: false
+        columns: 3
         cards:
           - type: button
-            name: Panorama View
+            name: Panorama
+            icon: mdi:panorama
             entity: button.shed_ptz_panorama
+            tap_action:
+              action: toggle
           - type: button
-            name: Return Gate View
+            name: Về góc cổng
+            icon: mdi:home-export-outline
             entity: button.shed_ptz_gate
+            tap_action:
+              action: toggle
+          - type: button
+            name: Reset baseline
+            icon: mdi:crosshairs-gps
+            entity: button.shed_camera_shift_reset
+            tap_action:
+              action: toggle
 
       - type: picture-entity
         title: Gate Camera (Frigate)

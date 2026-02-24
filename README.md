@@ -93,6 +93,10 @@ Tích hợp sẵn:
   - `sensor.shed_people_count`: Đếm người.
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
+- Dashboard Lovelace đã có nhóm **Điều khiển camera Imou** với các nút:
+  - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
+  - `button.shed_ptz_gate`: đưa camera về góc cổng OCR.
+  - `button.shed_camera_shift_reset`: reset baseline góc chuẩn sau khi chỉnh camera.
 
 ### Tự động hóa (Automation)
 - Tự động mở cửa Tuya khi nhận diện biển số xe quen (`whitelist`).

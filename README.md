@@ -98,6 +98,24 @@ Tích hợp sẵn:
 - Tự động mở cửa Tuya khi nhận diện biển số xe quen (`whitelist`).
 - Tự động đóng cửa sau 5 phút nếu không có người.
 
+
+## Truy cập Home Assistant từ mọi mạng (không phụ thuộc LAN)
+Để không bị mất kết nối khi đổi Wi-Fi/4G, dự án đã hỗ trợ tách URL nội bộ/ngoại mạng bằng biến `.env`:
+- `HA_INTERNAL_URL`: URL dùng khi ở cùng mạng nội bộ (VD `http://192.168.1.131:8123`).
+- `HA_EXTERNAL_URL`: URL public để truy cập từ mạng khác (VD domain qua Cloudflare Tunnel/DuckDNS/Nabu Casa).
+
+### Cấu hình nhanh
+1. Sửa `.env`:
+   - `HA_INTERNAL_URL=...`
+   - `HA_EXTERNAL_URL=...`
+2. Khởi động lại Home Assistant: `docker compose up -d homeassistant`
+3. Trong app Home Assistant Companion, chọn **Connection = Auto** và kiểm tra cả Internal/External URL.
+
+### Tuỳ chọn bật Cloudflare Tunnel ngay trong stack
+- Điền `CLOUDFLARED_TUNNEL_TOKEN` trong `.env`.
+- Chạy profile tunnel: `docker compose --profile remote_ha up -d cloudflared`
+- Trỏ public hostname trong Cloudflare Tunnel về `http://127.0.0.1:8123`.
+
 ## Điều khiển PTZ (Camera xoay 360)
 Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`

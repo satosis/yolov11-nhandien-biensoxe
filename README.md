@@ -119,7 +119,7 @@ Tích hợp sẵn:
 3. Trong app Home Assistant Companion, chọn **Connection = Auto** và kiểm tra cả Internal/External URL.
 
 ### Tuỳ chọn bật Tailscale để truy cập HA qua mạng khác
-- Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin).
+- Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin, chỉ cần khi bật profile `remote_ha_tailscale`).
 - Tuỳ chọn đặt `TS_HOSTNAME` (mặc định `ha-gateway`).
 - Chạy profile tailscale:
   - `docker compose --profile remote_ha_tailscale up -d tailscale`

@@ -29,6 +29,18 @@ cameras:
         - person
         - car
         - truck
+      filters:
+        person:
+          # Giảm false-positive khi camera thấy bàn/quần áo/biên dạng nhiễu
+          threshold: 0.72
+          min_score: 0.55
+          min_area: 2500
+        car:
+          threshold: 0.60
+          min_score: 0.45
+        truck:
+          threshold: 0.60
+          min_score: 0.45
     motion:
       # Tune these if lighting changes cause false positives
       threshold: 35

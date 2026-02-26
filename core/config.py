@@ -80,6 +80,14 @@ RTSP_URL = _resolved_url.replace("subtype=0", "subtype=1") if "subtype=0" in _re
 OCR_SOURCE = "rtsp"
 SIGNAL_LOSS_TIMEOUT = 30
 
+# --- Camera orientation monitor ---
+CAMERA_SHIFT_CHECK_EVERY_FRAMES = int(os.getenv("CAMERA_SHIFT_CHECK_EVERY_FRAMES", "8"))
+CAMERA_SHIFT_MIN_INLIER_RATIO = float(os.getenv("CAMERA_SHIFT_MIN_INLIER_RATIO", "0.18"))
+CAMERA_SHIFT_MAX_ROTATION_DEG = float(os.getenv("CAMERA_SHIFT_MAX_ROTATION_DEG", "3.5"))
+CAMERA_SHIFT_MAX_TRANSLATION_PX = float(os.getenv("CAMERA_SHIFT_MAX_TRANSLATION_PX", "18"))
+CAMERA_SHIFT_MAX_SCALE_DELTA = float(os.getenv("CAMERA_SHIFT_MAX_SCALE_DELTA", "0.08"))
+CAMERA_SHIFT_ALERT_CONSECUTIVE = int(os.getenv("CAMERA_SHIFT_ALERT_CONSECUTIVE", "3"))
+
 # --- Cửa cuốn (Brightness-based fallback) ---
 DOOR_ROI = (100, 50, 540, 400)
 BRIGHTNESS_THRESHOLD = 80

@@ -43,12 +43,50 @@ services:
     restart: unless-stopped
     depends_on:
       - mosquitto
+    env_file:
+      - ./.env
+      - ./.camera.env
     network_mode: host
     environment:
       - TZ=Asia/Ho_Chi_Minh
+      - HA_INTERNAL_URL=${HA_INTERNAL_URL:-http://127.0.0.1:8123}
+      - HA_EXTERNAL_URL=${HA_EXTERNAL_URL:-http://127.0.0.1:8123}
     volumes:
       - ./data/homeassistant:/config
       - /etc/localtime:/etc/localtime:ro
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    profiles: ["remote_ha"]
+    depends_on:
+      - homeassistant
+    network_mode: host
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_METRICS=127.0.0.1:60123
+
+
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: tailscale
+    restart: unless-stopped
+    profiles: ["remote_ha_tailscale"]
+    depends_on:
+      - homeassistant
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_HOSTNAME=${TS_HOSTNAME:-ha-gateway}
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:---accept-dns=true --accept-routes=true}
 
   event_bridge:
     build: ./deploy/event_bridge

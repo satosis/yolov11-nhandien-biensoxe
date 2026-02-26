@@ -167,6 +167,7 @@ Hành vi:
 ```
 
 ## Xử lý sự cố (Troubleshooting)
+- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` chỉ tăng/giảm khi object **đi qua vạch ảo trái/phải** (không phải cứ xuất hiện trong khung hình là tăng).
 - **Dùng Tailscale nhưng không truy cập được HA**: kiểm tra `tailscale status`, xác nhận node online trong tailnet, và đặt lại `HA_EXTERNAL_URL` theo MagicDNS `http://<TS_HOSTNAME>.<tailnet>.ts.net:8123`.
 - **Muốn xem lịch sử camera ngay trong HA**: dùng nút "Mở Frigate NVR"/"Mở Frigate Events" trên dashboard, hoặc mở trực tiếp `http://<host>:5000`; HA nên dùng cho điều khiển, NVR dùng cho timeline/record.
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.

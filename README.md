@@ -42,6 +42,21 @@ Sửa trong `.env`:
 Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
 Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
 
+
+## Phát hiện camera bị lệch góc (so với ban đầu)
+- Hệ thống tự chụp một **baseline frame** khi camera ổn định.
+- Mỗi vài frame sẽ so sánh frame hiện tại với baseline bằng **ORB feature matching + RANSAC affine**.
+- Nếu vượt ngưỡng liên tiếp (`rotation`, `translation`, `inlier ratio`, `scale`) thì tạo sự kiện `CAMERA_SHIFT` và gửi cảnh báo Telegram.
+- Khi camera quay về gần góc cũ, hệ thống ghi `CAMERA_SHIFT_RECOVERED`.
+
+Các biến tinh chỉnh trong `.env`:
+- `CAMERA_SHIFT_CHECK_EVERY_FRAMES`
+- `CAMERA_SHIFT_MIN_INLIER_RATIO`
+- `CAMERA_SHIFT_MAX_ROTATION_DEG`
+- `CAMERA_SHIFT_MAX_TRANSLATION_PX`
+- `CAMERA_SHIFT_MAX_SCALE_DELTA`
+- `CAMERA_SHIFT_ALERT_CONSECUTIVE`
+
 ## Tính năng Đếm Người & Xe
 - Hệ thống tự động đếm số lượng người và xe tải ra/vào.
 - Logic "Gate Logic": Tự động trừ số người khi có xe đi ra (tài xế).
@@ -78,10 +93,62 @@ Tích hợp sẵn:
   - `sensor.shed_people_count`: Đếm người.
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
+- Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
+  - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
+  - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
+  - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)
 - Tự động mở cửa Tuya khi nhận diện biển số xe quen (`whitelist`).
 - Tự động đóng cửa sau 5 phút nếu không có người.
+- Tự động đưa camera về vị trí mặc định khi không có người 5 phút.
+- HA chỉ hiển thị text số lượng **người/xe qua vạch đỏ** (`sensor.shed_people_count`, `sensor.shed_vehicle_count`).
+- Màu nhãn vùng nhận diện trên video: **Người = vàng**, **Xe = xanh** khi qua vạch đỏ.
+
+
+## Truy cập Home Assistant từ mọi mạng (không phụ thuộc LAN)
+Để không bị mất kết nối khi đổi Wi-Fi/4G, dự án đã hỗ trợ tách URL nội bộ/ngoại mạng bằng biến `.env`:
+- `HA_INTERNAL_URL`: URL dùng khi ở cùng mạng nội bộ (VD `http://192.168.1.131:8123`).
+- `HA_EXTERNAL_URL`: URL public để truy cập từ mạng khác (VD domain qua Cloudflare Tunnel/DuckDNS/Nabu Casa).
+
+### Cấu hình nhanh
+1. Sửa `.env`:
+   - `HA_INTERNAL_URL=...`
+   - `HA_EXTERNAL_URL=...`
+2. Khởi động lại Home Assistant: `docker compose up -d homeassistant`
+3. Trong app Home Assistant Companion, chọn **Connection = Auto** và kiểm tra cả Internal/External URL.
+
+### Tuỳ chọn bật Cloudflare Tunnel ngay trong stack
+- Điền `CLOUDFLARED_TUNNEL_TOKEN` trong `.env`.
+- Chạy profile tunnel: `docker compose --profile remote_ha up -d cloudflared`
+- Trỏ public hostname trong Cloudflare Tunnel về `http://127.0.0.1:8123`.
+
+### Tuỳ chọn bật Tailscale để truy cập HA qua mạng khác
+- Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin).
+- Tuỳ chọn đặt `TS_HOSTNAME` (mặc định `ha-gateway`).
+- Chạy profile tailscale:
+  - `docker compose --profile remote_ha_tailscale up -d tailscale`
+- Trên thiết bị đã đăng nhập cùng tailnet, truy cập HA bằng MagicDNS:
+  - `http://<TS_HOSTNAME>.<ten-tailnet>.ts.net:8123`
+- Khi dùng Tailscale, nên đặt `HA_EXTERNAL_URL` theo URL MagicDNS ở trên để app HA tự kết nối đúng khi ra khỏi LAN.
+
+
+## Kiến trúc khuyến nghị: HA để điều khiển, NVR để xem lịch sử
+- **Home Assistant**: hiển thị trạng thái + nút điều khiển nhanh (PTZ, reset baseline, cửa cuốn).
+- **NVR (khuyến nghị Frigate)**: lưu record/timeline/events và phát lại lịch sử.
+- Có thể thay Frigate bằng **MotionEye** hoặc **Scrypted**, nhưng Frigate phù hợp nhất khi cần event/object timeline.
+
+### Quy trình tích hợp camera Imou
+1. **Bật ONVIF/RTSP trên Imou**
+   - Trong app Imou Life, bật mục ONVIF/RTSP/Local Protocol (tên có thể khác tùy model).
+   - Tạo user/pass ONVIF/RTSP nếu camera hỗ trợ tách tài khoản.
+2. **Thêm vào HA bằng ONVIF**
+   - HA → Settings → Devices & services → Add integration → ONVIF.
+   - Lợi ích: live stream, PTZ control (nếu hỗ trợ), snapshot/profile stream.
+3. **Giao phần lịch sử cho Frigate**
+   - Dùng RTSP feed cho Frigate.
+   - Frigate cung cấp Timeline / Events / Clips / Retention.
+   - Nếu chỉ dùng HA + ONVIF mà không có NVR, HA chủ yếu là xem live chứ không thay thế đầy đủ chức năng playback lịch sử.
 
 ## Điều khiển PTZ (Camera xoay 360)
 Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
@@ -105,6 +172,8 @@ Hành vi:
 ```
 
 ## Xử lý sự cố (Troubleshooting)
+- **Dùng Tailscale nhưng không truy cập được HA**: kiểm tra `tailscale status`, xác nhận node online trong tailnet, và đặt lại `HA_EXTERNAL_URL` theo MagicDNS `http://<TS_HOSTNAME>.<tailnet>.ts.net:8123`.
+- **Muốn xem lịch sử camera ngay trong HA**: dùng nút "Mở Frigate NVR"/"Mở Frigate Events" trên dashboard, hoặc mở trực tiếp `http://<host>:5000`; HA nên dùng cho điều khiển, NVR dùng cho timeline/record.
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `./cmd up` hiện cũng tự fallback lấy user/pass từ `RTSP_URL` và ghi vào `.camera.env` để tránh thiếu biến `{RTSP_USER}`/`{RTSP_PASS}` trong `deploy/frigate/config.yml`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.

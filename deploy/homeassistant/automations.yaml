@@ -64,3 +64,20 @@
       data:
         title: "Cửa cuốn"
         message: "Cửa cuốn đã ĐÓNG"
+
+
+- id: ptz_return_default_no_people_5m
+  alias: "Về vị trí mặc định khi không có người 5 phút"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.shed_people_count
+      below: 1
+      for: "00:05:00"
+  action:
+    - service: button.press
+      target:
+        entity_id: button.shed_ptz_gate
+    - service: persistent_notification.create
+      data:
+        title: "PTZ Auto Return"
+        message: "Không có người 5 phút, camera đã về vị trí mặc định."

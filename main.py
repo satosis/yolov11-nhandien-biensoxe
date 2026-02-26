@@ -7,7 +7,6 @@ import os
 import time
 import threading
 import uuid
-import numpy as np
 from datetime import datetime
 from ultralytics import YOLO
 
@@ -15,12 +14,19 @@ from ultralytics import YOLO
 from core.config import (
     GENERAL_MODEL_PATH, PLATE_MODEL_PATH, LINE_Y, RTSP_URL, OCR_SOURCE,
     SIGNAL_LOSS_TIMEOUT, DOOR_ROI, FACE_RECOGNITION_AVAILABLE,
-    authorized_plates, normalize_plate, DB_PATH
+    authorized_plates, normalize_plate, DB_PATH,
+    CAMERA_SHIFT_CHECK_EVERY_FRAMES,
+    CAMERA_SHIFT_MIN_INLIER_RATIO,
+    CAMERA_SHIFT_MAX_ROTATION_DEG,
+    CAMERA_SHIFT_MAX_TRANSLATION_PX,
+    CAMERA_SHIFT_MAX_SCALE_DELTA,
+    CAMERA_SHIFT_ALERT_CONSECUTIVE,
 )
 from core.database import DatabaseManager
 from core.door_controller import DoorController
 from core.mqtt_manager import MQTTManager
 from core.mjpeg_streamer import MJPEGStreamer
+from core.camera_orientation_monitor import CameraOrientationMonitor
 
 # --- Services ---
 from services.telegram_service import notify_telegram, start_telegram_threads
@@ -114,9 +120,21 @@ notification_sent = False
 signal_loss_alerted = False
 tracked_ids = {}
 
-# --- Biến cho Optical Flow PTZ ---
+# Màu hiển thị vùng nhận diện theo yêu cầu vận hành
+PERSON_BOX_COLOR = (0, 255, 255)  # vàng
+VEHICLE_BOX_COLOR = (255, 0, 0)   # xanh dương
+
 frame_count = 0
-prev_gray = None
+camera_shift_alerted = False
+camera_monitor = CameraOrientationMonitor(
+    check_every_n_frames=CAMERA_SHIFT_CHECK_EVERY_FRAMES,
+    min_inlier_ratio=CAMERA_SHIFT_MIN_INLIER_RATIO,
+    max_rotation_deg=CAMERA_SHIFT_MAX_ROTATION_DEG,
+    max_translation_px=CAMERA_SHIFT_MAX_TRANSLATION_PX,
+    max_scale_delta=CAMERA_SHIFT_MAX_SCALE_DELTA,
+    required_consecutive_alerts=CAMERA_SHIFT_ALERT_CONSECUTIVE,
+)
+camera_baseline_ready = False
 
 # ========== MAIN LOOP ==========
 while True:
@@ -140,27 +158,31 @@ while True:
     last_frame_time = time.time()
     frame_count += 1
 
-    # 0. CHỐNG XOAY APP IMOU: Nhận diện bằng Optical Flow
-    if frame_count % 5 == 0 and mqtt_manager.ocr_enabled:
-        small_frame = cv2.resize(frame, (640, int(640 * frame.shape[0] / frame.shape[1])))
-        gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
-        
-        if prev_gray is not None:
-            p0 = cv2.goodFeaturesToTrack(prev_gray, mask=None, maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
-            if p0 is not None:
-                p1, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
-                if p1 is not None and st is not None:
-                    good_new = p1[st.flatten() == 1].reshape(-1, 2)
-                    good_old = p0[st.flatten() == 1].reshape(-1, 2)
-                    if len(good_new) > 10:
-                        dx = good_new[:, 0] - good_old[:, 0]
-                        dy = good_new[:, 1] - good_old[:, 1]
-                        movement = float(np.sqrt(np.median(dx)**2 + np.median(dy)**2))
-                        if movement > 3.0:
-                            print(f"🚨 Phát hiện xoay tay bằng Imou App ({movement:.1f}px). Đang Tạm Dừng AI...")
-                            mqtt_manager.client.publish("shed/cmd/ptz_panorama", "1")
-                            mqtt_manager.ocr_enabled = False # Tắt luôn OCR local chống lag delay từ server
-        prev_gray = gray.copy()
+    # 0. Giám sát camera có lệch khỏi góc ban đầu hay không
+    if not camera_baseline_ready:
+        camera_baseline_ready = camera_monitor.set_baseline(frame)
+        if camera_baseline_ready:
+            print("✅ Camera baseline đã được chụp để theo dõi lệch góc.")
+    else:
+        shift_result = camera_monitor.evaluate(frame)
+        if shift_result is not None:
+            if shift_result.is_shifted and not camera_shift_alerted:
+                camera_shift_alerted = True
+                msg = (
+                    "🚨 CẢNH BÁO: Camera có dấu hiệu lệch góc khỏi vị trí ban đầu "
+                    f"(rot={shift_result.rotation_deg:.2f}°, "
+                    f"trans={shift_result.translation_px:.1f}px, "
+                    f"inlier={shift_result.inlier_ratio:.2f})."
+                )
+                print(msg)
+                db.log_event("CAMERA_SHIFT", msg, truck_count, person_count)
+                notify_telegram(msg, important=True)
+            elif not shift_result.is_shifted and camera_shift_alerted:
+                camera_shift_alerted = False
+                msg = "✅ Camera đã quay lại gần góc ban đầu."
+                print(msg)
+                db.log_event("CAMERA_SHIFT_RECOVERED", msg, truck_count, person_count)
+                notify_telegram(msg)
 
     # 1. Nhận diện người/xe tải (YOLO tracking)
     results = general_model.track(frame, persist=True, verbose=False)
@@ -177,11 +199,13 @@ while True:
             cls = int(bbox.cls[0])
             center_y = (y1 + y2) // 2
 
+            crossed_red_line = False
             if obj_id in tracked_ids:
                 prev_y = tracked_ids[obj_id]
 
                 if prev_y < LINE_Y and center_y >= LINE_Y:
                     event_msg = ""
+                    crossed_red_line = True
                     if cls == 7:  # Truck
                         truck_count += 1
                         event_msg = f"Xe tải {obj_id} đi vào kho."
@@ -195,6 +219,7 @@ while True:
 
                 elif prev_y >= LINE_Y and center_y < LINE_Y:
                     event_msg = ""
+                    crossed_red_line = True
                     if cls == 7:
                         truck_count = max(0, truck_count - 1)
                         person_count = max(0, person_count - 1)
@@ -212,6 +237,23 @@ while True:
             if cls == 0:
                 last_person_seen_time = time.time()
                 notification_sent = False
+
+            # Hiển thị label vùng nhận diện: người vàng, xe xanh
+            if cls in (0, 7):
+                box_color = PERSON_BOX_COLOR if cls == 0 else VEHICLE_BOX_COLOR
+                label_name = "NGUOI" if cls == 0 else "XE"
+                if crossed_red_line:
+                    label_name += " QUA VACH DO"
+                cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
+                cv2.putText(
+                    frame,
+                    f"{label_name} #{obj_id}",
+                    (x1, max(20, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    box_color,
+                    2,
+                )
 
     # 2. Nhận diện khuôn mặt (mỗi 2 giây)
     if FACE_RECOGNITION_AVAILABLE and int(time.time()) % 2 == 0:
@@ -315,7 +357,7 @@ while True:
     # GUI
     door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
     cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 5)
-    cv2.putText(frame, f"Trai:{truck_count} Phai:{person_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+    cv2.putText(frame, f"Qua vach do - Xe: {truck_count} | Nguoi: {person_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 255), 2)
     cv2.putText(frame, f"Cua: {door_status}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
     
     # Cập nhật thông tin thời gian thực

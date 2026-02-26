@@ -38,15 +38,23 @@ views:
           - type: button
             name: Toàn cảnh
             icon: mdi:panorama
-            entity: button.shed_ptz_panorama
+            show_state: false
             tap_action:
-              action: toggle
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_panorama
+                payload: "1"
           - type: button
             name: Về vị trí mặc định
             icon: mdi:crosshairs-gps
-            entity: button.shed_ptz_gate
+            show_state: false
             tap_action:
-              action: toggle
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_gate
+                payload: "1"
 
       - type: horizontal-stack
         cards:
@@ -64,5 +72,11 @@ views:
               url_path: http://127.0.0.1:5000/review
 
       - type: picture-entity
-        title: Gate Camera (Frigate)
+        title: "Camera HA trực tiếp (AI Overlay: vạch đỏ + khoanh vùng)"
+        entity: camera.shed_ai_overlay
+        camera_view: live
+
+      - type: picture-entity
+        title: Camera Frigate gốc (không overlay)
         entity: camera.frigate_cam1
+        camera_view: live

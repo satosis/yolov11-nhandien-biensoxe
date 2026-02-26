@@ -25,6 +25,8 @@ Commands:
   report-month YYYY-MM
   chart-month YYYY-MM
   test-ptz [--fast]
+  webcam-people [args]  Run webcam people detector (for laptop/PC debug)
+  remote-check          Check remote Home Assistant prerequisites
 USAGE
 }
 
@@ -153,6 +155,18 @@ case "${1:-}" in
     else
       python3 "${BASE_DIR}/deploy/tests/test_ptz.py"
     fi
+    ;;
+  remote-check)
+    env_file="${BASE_DIR}/.env"
+    if [[ ! -f "$env_file" ]]; then
+      echo "Missing .env at $env_file"
+      exit 1
+    fi
+    python3 "${BASE_DIR}/deploy/scripts/check_remote_ha.py" --env-file "$env_file"
+    ;;
+  webcam-people)
+    shift || true
+    python3 "${BASE_DIR}/deploy/utils/webcam_people_counter.py" "$@"
     ;;
   *)
     usage

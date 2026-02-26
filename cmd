@@ -73,7 +73,7 @@ case "${1:-}" in
     ts_auth="$(read_env_value TS_AUTHKEY)"
     docker compose --profile remote_ha_tailscale up -d tailscale
     if [[ -n "$ts_auth" ]]; then
-      echo "[cmd] ✅ Tailscale remote profile started (TS_AUTHKEY detected)."
+      echo "[cmd] ✅ Tailscale remote profile started (TS_AUTHKEY detected, only needed for first login)."
     else
       echo "[cmd] ℹ️ TS_AUTHKEY trống: vẫn bật tailscale bằng state đã lưu (nếu có)."
     fi
@@ -205,7 +205,7 @@ case "${1:-}" in
     fi
     ts_auth="$(read_env_value TS_AUTHKEY)"
     if [[ -z "$ts_auth" ]]; then
-      echo "[cmd] TS_AUTHKEY trống. Tiếp tục bật tailscale bằng state đã lưu (nếu có)."
+      echo "[cmd] TS_AUTHKEY trống. Tiếp tục bật tailscale bằng state đã lưu (không cần key mới nếu đã login trước đó)."
     fi
 
     docker compose --profile remote_ha_tailscale up -d tailscale

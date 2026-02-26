@@ -45,16 +45,23 @@ case "${1:-}" in
     fi
     docker compose up -d
     echo "[cmd] Waiting for Frigate health check..."
+    status=""
     for _ in $(seq 1 30); do
-      status="$(docker compose ps --format json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); s=[x.get("Health","") for x in data if x.get("Service")=="frigate"]; print((s[0] if s else ""))' 2>/dev/null || true)"
-      if [[ "$status" == "healthy" ]]; then
-        echo "[cmd] ✅ Frigate is healthy."
+      container_id="$(docker compose ps -q frigate 2>/dev/null || true)"
+      if [[ -n "$container_id" ]]; then
+        status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+      else
+        status=""
+      fi
+
+      if [[ "$status" == "healthy" || "$status" == "running" ]]; then
+        echo "[cmd] ✅ Frigate is ready (status: $status)."
         break
       fi
       sleep 2
     done
 
-    if [[ "$status" != "healthy" ]]; then
+    if [[ "$status" != "healthy" && "$status" != "running" ]]; then
       echo "[cmd] ⚠️ Frigate is not healthy yet (status: ${status:-unknown})."
       echo "[cmd] Tip: run './cmd logs frigate' to inspect stream/connectivity errors."
     fi

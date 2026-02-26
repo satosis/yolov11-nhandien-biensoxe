@@ -9,7 +9,7 @@ usage() {
 Usage: ./cmd <command> [args]
 
 Commands:
-  up                Resolve CAMERA_IP from CAMERA_MAC (runtime), then start services
+  up                Resolve CAMERA_IP, start services, auto-start Tailscale if TS_AUTHKEY set
   down              Stop services (docker compose down)
   logs [service]    Tail logs (default: all services)
   stats             Show event counts by label
@@ -39,12 +39,45 @@ ensure_db() {
   fi
 }
 
+read_env_value() {
+  local key="$1"
+  local env_file="${BASE_DIR}/.env"
+  if [[ ! -f "$env_file" ]]; then
+    return 0
+  fi
+  python3 - "$env_file" "$key" <<'PYENV'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = ""
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    if k.strip() == key:
+        value = v.strip().strip('"').strip("'")
+        break
+print(value)
+PYENV
+}
+
 case "${1:-}" in
   up)
     if [[ -f "${BASE_DIR}/.env" ]]; then
       python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"
     fi
     docker compose up -d
+
+    ts_auth="$(read_env_value TS_AUTHKEY)"
+    if [[ -n "$ts_auth" ]]; then
+      docker compose --profile remote_ha_tailscale up -d tailscale
+      echo "[cmd] ✅ Tailscale remote profile started (TS_AUTHKEY detected)."
+    else
+      echo "[cmd] ℹ️ TS_AUTHKEY trống, bỏ qua Tailscale remote profile."
+    fi
+
     echo "[cmd] Waiting for Frigate health check..."
     status=""
     for _ in $(seq 1 30); do
@@ -170,22 +203,7 @@ case "${1:-}" in
       echo "Missing .env at $env_file"
       exit 1
     fi
-    ts_auth="$(python3 - <<'PYENV'
-from pathlib import Path
-p=Path('.env')
-val=''
-if p.exists():
-  for raw in p.read_text(encoding='utf-8').splitlines():
-    line=raw.strip()
-    if not line or line.startswith('#') or '=' not in line:
-      continue
-    k,v=line.split('=',1)
-    if k.strip()=='TS_AUTHKEY':
-      val=v.strip().strip('"').strip("'")
-      break
-print(val)
-PYENV
-)"
+    ts_auth="$(read_env_value TS_AUTHKEY)"
     if [[ -z "$ts_auth" ]]; then
       echo "TS_AUTHKEY is empty in .env"
       echo "Set TS_AUTHKEY first, then rerun ./cmd remote-up"

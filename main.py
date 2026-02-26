@@ -21,6 +21,8 @@ from core.config import (
     CAMERA_SHIFT_MAX_TRANSLATION_PX,
     CAMERA_SHIFT_MAX_SCALE_DELTA,
     CAMERA_SHIFT_ALERT_CONSECUTIVE,
+    PROCESS_WIDTH, STREAM_WIDTH, STREAM_FPS, STREAM_JPEG_QUALITY,
+    GENERAL_DETECT_IMGSZ, GENERAL_DETECT_CONF, PLATE_DETECT_EVERY_N_FRAMES,
 )
 from core.database import DatabaseManager
 from core.door_controller import DoorController
@@ -42,7 +44,7 @@ mqtt_manager = MQTTManager(door_controller)
 mqtt_manager.start()
 print("✅ MQTT Manager started")
 
-streamer = MJPEGStreamer()
+streamer = MJPEGStreamer(stream_width=STREAM_WIDTH, fps=STREAM_FPS, jpeg_quality=STREAM_JPEG_QUALITY)
 
 # --- Trạng thái toàn cục ---
 truck_count = 0
@@ -129,6 +131,16 @@ def ocr_plate(image):
 
 
 # --- Parse OCR source ---
+
+
+def resize_for_process(frame, target_width):
+    if target_width <= 0 or frame.shape[1] <= target_width:
+        return frame
+    ratio = target_width / float(frame.shape[1])
+    new_h = max(1, int(frame.shape[0] * ratio))
+    return cv2.resize(frame, (target_width, new_h), interpolation=cv2.INTER_AREA)
+
+
 def parse_ocr_source(source):
     normalized = source.lower()
     if normalized.startswith("image:") or normalized.startswith("image="):
@@ -203,6 +215,8 @@ while True:
     last_frame_time = time.time()
     frame_count += 1
 
+    frame = resize_for_process(frame, PROCESS_WIDTH)
+
     # 0. Giám sát camera có lệch khỏi góc ban đầu hay không
     if not camera_baseline_ready:
         camera_baseline_ready = camera_monitor.set_baseline(frame)
@@ -230,7 +244,7 @@ while True:
                 notify_telegram(msg)
 
     # 1. Nhận diện người/xe (YOLO tracking)
-    results = general_model.track(frame, persist=True, verbose=False)
+    results = general_model.track(frame, persist=True, verbose=False, imgsz=GENERAL_DETECT_IMGSZ, conf=GENERAL_DETECT_CONF)
 
     save_active_learning = False
 
@@ -332,7 +346,7 @@ while True:
             cv2.putText(frame, name, (loc[3], loc[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     # 3. Nhận diện biển số (chỉ chạy nếu OCR được bật)
-    if mqtt_manager.ocr_enabled:
+    if mqtt_manager.ocr_enabled and frame_count % max(1, PLATE_DETECT_EVERY_N_FRAMES) == 0:
         plate_results = plate_model(frame, verbose=False)
         for pr in plate_results:
             for pbox in pr.boxes:

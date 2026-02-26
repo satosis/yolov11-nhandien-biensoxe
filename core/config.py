@@ -80,6 +80,16 @@ RTSP_URL = _resolved_url.replace("subtype=0", "subtype=1") if "subtype=0" in _re
 OCR_SOURCE = "rtsp"
 SIGNAL_LOSS_TIMEOUT = 30
 
+
+# --- Performance tuning (optimized for Orange Pi class devices) ---
+PROCESS_WIDTH = 960          # Resize frame trước khi AI để giảm tải CPU
+STREAM_WIDTH = 960           # Resize frame trước khi stream MJPEG
+STREAM_FPS = 8               # FPS stream về HA
+STREAM_JPEG_QUALITY = 68     # Giảm bandwidth + CPU encode
+GENERAL_DETECT_IMGSZ = 640   # Input size cho YOLO track
+GENERAL_DETECT_CONF = 0.35
+PLATE_DETECT_EVERY_N_FRAMES = 3  # Chỉ chạy model biển số mỗi N frame
+
 # --- Camera orientation monitor ---
 CAMERA_SHIFT_CHECK_EVERY_FRAMES = int(os.getenv("CAMERA_SHIFT_CHECK_EVERY_FRAMES", "8"))
 CAMERA_SHIFT_MIN_INLIER_RATIO = float(os.getenv("CAMERA_SHIFT_MIN_INLIER_RATIO", "0.18"))

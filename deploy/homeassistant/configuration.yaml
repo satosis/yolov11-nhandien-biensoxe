@@ -1,5 +1,7 @@
 default_config:
 
+stream:
+
 homeassistant:
   internal_url: !env_var HA_INTERNAL_URL
   external_url: !env_var HA_EXTERNAL_URL
@@ -26,6 +28,14 @@ mqtt:
       state_open: "open"
       state_closed: "closed"
       optimistic: false
+
+camera:
+  - platform: generic
+    name: "Shed AI Overlay"
+    still_image_url: "http://127.0.0.1:8080/video_feed"
+    stream_source: "http://127.0.0.1:8080/video_feed"
+    verify_ssl: false
+    limit_refetch_to_url_change: true
 
 lovelace:
   mode: yaml

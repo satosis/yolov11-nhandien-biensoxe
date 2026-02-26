@@ -21,6 +21,8 @@ from core.config import (
     CAMERA_SHIFT_MAX_TRANSLATION_PX,
     CAMERA_SHIFT_MAX_SCALE_DELTA,
     CAMERA_SHIFT_ALERT_CONSECUTIVE,
+    PROCESS_WIDTH, STREAM_WIDTH, STREAM_FPS, STREAM_JPEG_QUALITY,
+    GENERAL_DETECT_IMGSZ, GENERAL_DETECT_CONF, PLATE_DETECT_EVERY_N_FRAMES,
 )
 from core.database import DatabaseManager
 from core.door_controller import DoorController
@@ -42,7 +44,7 @@ mqtt_manager = MQTTManager(door_controller)
 mqtt_manager.start()
 print("✅ MQTT Manager started")
 
-streamer = MJPEGStreamer()
+streamer = MJPEGStreamer(stream_width=STREAM_WIDTH, fps=STREAM_FPS, jpeg_quality=STREAM_JPEG_QUALITY)
 
 # --- Trạng thái toàn cục ---
 truck_count = 0
@@ -72,6 +74,51 @@ print("✅ API Server started at http://0.0.0.0:8000/video_feed")
 general_model = YOLO(GENERAL_MODEL_PATH)
 plate_model = YOLO(PLATE_MODEL_PATH)
 
+
+def _resolve_class_ids(model):
+    """Tìm class id cho person/xe từ model names để tránh hard-code sai model."""
+    names = getattr(model, "names", {}) or {}
+    person_ids = set()
+    vehicle_ids = set()
+
+    person_aliases = {"person", "nguoi", "người"}
+    vehicle_aliases = {
+        "truck",
+        "car",
+        "vehicle",
+        "van",
+        "bus",
+        "motorcycle",
+        "motorbike",
+        "bike",
+        "bicycle",
+        "xe",
+        "xe_tai",
+        "xe tai",
+        "oto",
+        "ô tô",
+    }
+
+    for idx, raw_name in names.items():
+        label = str(raw_name).strip().lower()
+        if label in person_aliases:
+            person_ids.add(int(idx))
+        if label in vehicle_aliases or label.startswith("xe"):
+            vehicle_ids.add(int(idx))
+
+    # fallback cho model COCO nếu names không có/khớp như kỳ vọng
+    if not person_ids:
+        person_ids.add(0)
+    if not vehicle_ids:
+        coco_vehicle_ids = {1, 2, 3, 5, 7}
+        vehicle_ids = {idx for idx in coco_vehicle_ids if idx < len(names)} or {7}
+
+    return person_ids, vehicle_ids
+
+
+PERSON_CLASS_IDS, VEHICLE_CLASS_IDS = _resolve_class_ids(general_model)
+print(f"ℹ️ person class ids: {sorted(PERSON_CLASS_IDS)} | vehicle class ids: {sorted(VEHICLE_CLASS_IDS)}")
+
 # --- PaddleOCR ---
 from util.ocr_utils import VNPlateOCR
 plate_ocr = VNPlateOCR()
@@ -84,6 +131,16 @@ def ocr_plate(image):
 
 
 # --- Parse OCR source ---
+
+
+def resize_for_process(frame, target_width):
+    if target_width <= 0 or frame.shape[1] <= target_width:
+        return frame
+    ratio = target_width / float(frame.shape[1])
+    new_h = max(1, int(frame.shape[0] * ratio))
+    return cv2.resize(frame, (target_width, new_h), interpolation=cv2.INTER_AREA)
+
+
 def parse_ocr_source(source):
     normalized = source.lower()
     if normalized.startswith("image:") or normalized.startswith("image="):
@@ -158,6 +215,8 @@ while True:
     last_frame_time = time.time()
     frame_count += 1
 
+    frame = resize_for_process(frame, PROCESS_WIDTH)
+
     # 0. Giám sát camera có lệch khỏi góc ban đầu hay không
     if not camera_baseline_ready:
         camera_baseline_ready = camera_monitor.set_baseline(frame)
@@ -184,32 +243,31 @@ while True:
                 db.log_event("CAMERA_SHIFT_RECOVERED", msg, truck_count, person_count)
                 notify_telegram(msg)
 
-    # 1. Nhận diện người/xe tải (YOLO tracking)
-    results = general_model.track(frame, persist=True, verbose=False)
+    # 1. Nhận diện người/xe (YOLO tracking)
+    results = general_model.track(frame, persist=True, verbose=False, imgsz=GENERAL_DETECT_IMGSZ, conf=GENERAL_DETECT_CONF)
 
     save_active_learning = False
 
     for r in results:
         for bbox in r.boxes:
-            if bbox.id is None:
-                continue
-
             x1, y1, x2, y2 = map(int, bbox.xyxy[0])
-            obj_id = int(bbox.id[0])
+            obj_id = int(bbox.id[0]) if bbox.id is not None else None
             cls = int(bbox.cls[0])
             center_y = (y1 + y2) // 2
+            is_person = cls in PERSON_CLASS_IDS
+            is_vehicle = cls in VEHICLE_CLASS_IDS
 
             crossed_red_line = False
-            if obj_id in tracked_ids:
+            if obj_id is not None and obj_id in tracked_ids:
                 prev_y = tracked_ids[obj_id]
 
                 if prev_y < LINE_Y and center_y >= LINE_Y:
                     event_msg = ""
                     crossed_red_line = True
-                    if cls == 7:  # Truck
+                    if is_vehicle:
                         truck_count += 1
-                        event_msg = f"Xe tải {obj_id} đi vào kho."
-                    elif cls == 0:  # Person
+                        event_msg = f"Xe {obj_id} đi vào kho."
+                    elif is_person:
                         person_count += 1
                         event_msg = f"Người {obj_id} đi vào kho."
 
@@ -220,11 +278,11 @@ while True:
                 elif prev_y >= LINE_Y and center_y < LINE_Y:
                     event_msg = ""
                     crossed_red_line = True
-                    if cls == 7:
+                    if is_vehicle:
                         truck_count = max(0, truck_count - 1)
                         person_count = max(0, person_count - 1)
-                        event_msg = f"Xe tải {obj_id} đi ra. Tự động trừ 1 người."
-                    elif cls == 0:
+                        event_msg = f"Xe {obj_id} đi ra. Tự động trừ 1 người."
+                    elif is_person:
                         person_count = max(0, person_count - 1)
                         event_msg = f"Người {obj_id} đi ra."
 
@@ -232,22 +290,24 @@ while True:
                         db.log_event("OUT", event_msg, truck_count, person_count)
                         notify_telegram(event_msg)
 
-            tracked_ids[obj_id] = center_y
+            if obj_id is not None:
+                tracked_ids[obj_id] = center_y
 
-            if cls == 0:
+            if is_person:
                 last_person_seen_time = time.time()
                 notification_sent = False
 
             # Hiển thị label vùng nhận diện: người vàng, xe xanh
-            if cls in (0, 7):
-                box_color = PERSON_BOX_COLOR if cls == 0 else VEHICLE_BOX_COLOR
-                label_name = "NGUOI" if cls == 0 else "XE"
+            if is_person or is_vehicle:
+                box_color = PERSON_BOX_COLOR if is_person else VEHICLE_BOX_COLOR
+                label_name = "NGUOI" if is_person else "XE"
                 if crossed_red_line:
                     label_name += " QUA VACH DO"
+                display_id = obj_id if obj_id is not None else "NA"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
                 cv2.putText(
                     frame,
-                    f"{label_name} #{obj_id}",
+                    f"{label_name} #{display_id}",
                     (x1, max(20, y1 - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.55,
@@ -286,7 +346,7 @@ while True:
             cv2.putText(frame, name, (loc[3], loc[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     # 3. Nhận diện biển số (chỉ chạy nếu OCR được bật)
-    if mqtt_manager.ocr_enabled:
+    if mqtt_manager.ocr_enabled and frame_count % max(1, PLATE_DETECT_EVERY_N_FRAMES) == 0:
         plate_results = plate_model(frame, verbose=False)
         for pr in plate_results:
             for pbox in pr.boxes:

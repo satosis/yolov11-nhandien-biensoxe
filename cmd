@@ -9,7 +9,7 @@ usage() {
 Usage: ./cmd <command> [args]
 
 Commands:
-  up                Resolve CAMERA_IP from CAMERA_MAC (runtime), then start services
+  up                Resolve CAMERA_IP, start services, auto-start Tailscale if TS_AUTHKEY set
   down              Stop services (docker compose down)
   logs [service]    Tail logs (default: all services)
   stats             Show event counts by label
@@ -27,6 +27,7 @@ Commands:
   test-ptz [--fast]
   webcam-people [args]  Run webcam people detector (for laptop/PC debug)
   remote-check          Check remote Home Assistant prerequisites
+  remote-up             Start Tailscale profile for HA remote access
 USAGE
 }
 
@@ -38,23 +39,63 @@ ensure_db() {
   fi
 }
 
+read_env_value() {
+  local key="$1"
+  local env_file="${BASE_DIR}/.env"
+  if [[ ! -f "$env_file" ]]; then
+    return 0
+  fi
+  python3 - "$env_file" "$key" <<'PYENV'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = ""
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    if k.strip() == key:
+        value = v.strip().strip('"').strip("'")
+        break
+print(value)
+PYENV
+}
+
 case "${1:-}" in
   up)
     if [[ -f "${BASE_DIR}/.env" ]]; then
       python3 "${BASE_DIR}/deploy/scripts/resolve_camera_ip.py" --env-file "${BASE_DIR}/.env" --out-env-file "${BASE_DIR}/.camera.env"
     fi
     docker compose up -d
+
+    ts_auth="$(read_env_value TS_AUTHKEY)"
+    docker compose --profile remote_ha_tailscale up -d tailscale
+    if [[ -n "$ts_auth" ]]; then
+      echo "[cmd] ✅ Tailscale remote profile started (TS_AUTHKEY detected, only needed for first login)."
+    else
+      echo "[cmd] ℹ️ TS_AUTHKEY trống: vẫn bật tailscale bằng state đã lưu (nếu có)."
+    fi
+
     echo "[cmd] Waiting for Frigate health check..."
+    status=""
     for _ in $(seq 1 30); do
-      status="$(docker compose ps --format json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); s=[x.get("Health","") for x in data if x.get("Service")=="frigate"]; print((s[0] if s else ""))' 2>/dev/null || true)"
-      if [[ "$status" == "healthy" ]]; then
-        echo "[cmd] ✅ Frigate is healthy."
+      container_id="$(docker compose ps -q frigate 2>/dev/null || true)"
+      if [[ -n "$container_id" ]]; then
+        status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+      else
+        status=""
+      fi
+
+      if [[ "$status" == "healthy" || "$status" == "running" ]]; then
+        echo "[cmd] ✅ Frigate is ready (status: $status)."
         break
       fi
       sleep 2
     done
 
-    if [[ "$status" != "healthy" ]]; then
+    if [[ "$status" != "healthy" && "$status" != "running" ]]; then
       echo "[cmd] ⚠️ Frigate is not healthy yet (status: ${status:-unknown})."
       echo "[cmd] Tip: run './cmd logs frigate' to inspect stream/connectivity errors."
     fi
@@ -155,6 +196,21 @@ case "${1:-}" in
     else
       python3 "${BASE_DIR}/deploy/tests/test_ptz.py"
     fi
+    ;;
+  remote-up)
+    env_file="${BASE_DIR}/.env"
+    if [[ ! -f "$env_file" ]]; then
+      echo "Missing .env at $env_file"
+      exit 1
+    fi
+    ts_auth="$(read_env_value TS_AUTHKEY)"
+    if [[ -z "$ts_auth" ]]; then
+      echo "[cmd] TS_AUTHKEY trống. Tiếp tục bật tailscale bằng state đã lưu (không cần key mới nếu đã login trước đó)."
+    fi
+
+    docker compose --profile remote_ha_tailscale up -d tailscale
+    echo "[cmd] Tailscale started. Remote URL hint:"
+    docker exec tailscale tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); self=data.get("Self",{}); dns=(self.get("DNSName") or "").rstrip("."); print(f"https://{dns}:8123" if dns else "(cannot determine DNSName)")' || true
     ;;
   remote-check)
     env_file="${BASE_DIR}/.env"

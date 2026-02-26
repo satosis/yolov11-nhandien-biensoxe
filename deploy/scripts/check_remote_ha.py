@@ -20,6 +20,14 @@ def load_env(path: str) -> dict[str, str]:
     return values
 
 
+def is_loopback_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+        return host in {"127.0.0.1", "localhost"}
+    except Exception:
+        return False
+
+
 def port_open(host: str, port: int, timeout: float = 1.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -53,6 +61,11 @@ def main() -> None:
     if not external:
         print("[WARN] Missing HA_EXTERNAL_URL")
 
+    if internal and is_loopback_host(internal):
+        print("[WARN] HA_INTERNAL_URL đang dùng localhost/127.0.0.1 (chỉ truy cập được trên chính máy chạy HA)")
+    if external and is_loopback_host(external):
+        print("[WARN] HA_EXTERNAL_URL đang dùng localhost/127.0.0.1 nên không truy cập được từ mạng khác")
+
     if external:
         parsed = urlparse(external)
         if not parsed.scheme or not parsed.netloc:
@@ -65,6 +78,10 @@ def main() -> None:
         print("[OK] Local Home Assistant port 8123 is reachable")
     else:
         print("[WARN] Local Home Assistant port 8123 is not reachable")
+
+    if ts_auth.strip():
+        print("[INFO] TS_AUTHKEY is set. Start Tailscale with:")
+        print("       ./cmd remote-up")
 
     if not ts_auth.strip():
         print("[INFO] TS_AUTHKEY is empty: Tailscale remote access profile cannot authenticate yet")

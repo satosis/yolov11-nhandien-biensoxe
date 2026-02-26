@@ -27,6 +27,7 @@ Commands:
   test-ptz [--fast]
   webcam-people [args]  Run webcam people detector (for laptop/PC debug)
   remote-check          Check remote Home Assistant prerequisites
+  remote-up             Start Tailscale profile for HA remote access
 USAGE
 }
 
@@ -162,6 +163,38 @@ case "${1:-}" in
     else
       python3 "${BASE_DIR}/deploy/tests/test_ptz.py"
     fi
+    ;;
+  remote-up)
+    env_file="${BASE_DIR}/.env"
+    if [[ ! -f "$env_file" ]]; then
+      echo "Missing .env at $env_file"
+      exit 1
+    fi
+    ts_auth="$(python3 - <<'PYENV'
+from pathlib import Path
+p=Path('.env')
+val=''
+if p.exists():
+  for raw in p.read_text(encoding='utf-8').splitlines():
+    line=raw.strip()
+    if not line or line.startswith('#') or '=' not in line:
+      continue
+    k,v=line.split('=',1)
+    if k.strip()=='TS_AUTHKEY':
+      val=v.strip().strip('"').strip("'")
+      break
+print(val)
+PYENV
+)"
+    if [[ -z "$ts_auth" ]]; then
+      echo "TS_AUTHKEY is empty in .env"
+      echo "Set TS_AUTHKEY first, then rerun ./cmd remote-up"
+      exit 1
+    fi
+
+    docker compose --profile remote_ha_tailscale up -d tailscale
+    echo "[cmd] Tailscale started. Remote URL hint:"
+    docker exec tailscale tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); self=data.get("Self",{}); dns=(self.get("DNSName") or "").rstrip("."); print(f"https://{dns}:8123" if dns else "(cannot determine DNSName)")' || true
     ;;
   remote-check)
     env_file="${BASE_DIR}/.env"

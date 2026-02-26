@@ -118,11 +118,6 @@ Tích hợp sẵn:
 2. Khởi động lại Home Assistant: `docker compose up -d homeassistant`
 3. Trong app Home Assistant Companion, chọn **Connection = Auto** và kiểm tra cả Internal/External URL.
 
-### Tuỳ chọn bật Cloudflare Tunnel ngay trong stack
-- Điền `CLOUDFLARED_TUNNEL_TOKEN` trong `.env`.
-- Chạy profile tunnel: `docker compose --profile remote_ha up -d cloudflared`
-- Trỏ public hostname trong Cloudflare Tunnel về `http://127.0.0.1:8123`.
-
 ### Tuỳ chọn bật Tailscale để truy cập HA qua mạng khác
 - Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin).
 - Tuỳ chọn đặt `TS_HOSTNAME` (mặc định `ha-gateway`).

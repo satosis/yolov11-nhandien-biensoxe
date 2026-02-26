@@ -55,19 +55,6 @@ services:
       - ./data/homeassistant:/config
       - /etc/localtime:/etc/localtime:ro
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    restart: unless-stopped
-    profiles: ["remote_ha"]
-    depends_on:
-      - homeassistant
-    network_mode: host
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN}
-    environment:
-      - TUNNEL_METRICS=127.0.0.1:60123
-
-
   tailscale:
     image: tailscale/tailscale:stable
     container_name: tailscale

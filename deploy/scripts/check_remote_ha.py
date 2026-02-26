@@ -84,9 +84,8 @@ def main() -> None:
         print("       ./cmd remote-up")
 
     if not ts_auth.strip():
-        print("[INFO] TS_AUTHKEY is empty: Tailscale remote access profile cannot authenticate yet")
-        print("       Add TS_AUTHKEY in .env then run:")
-        print("       docker compose --profile remote_ha_tailscale up -d tailscale")
+        print("[INFO] TS_AUTHKEY is empty: chỉ dùng được nếu tailscale đã đăng nhập từ state trước đó")
+        print("       Nếu chưa từng đăng nhập, thêm TS_AUTHKEY rồi chạy ./cmd remote-up")
 
     if external and re.search(r"\.ts\.net(?::\d+)?$", urlparse(external).netloc):
         print("[OK] HA_EXTERNAL_URL looks like Tailscale MagicDNS")

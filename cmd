@@ -71,11 +71,11 @@ case "${1:-}" in
     docker compose up -d
 
     ts_auth="$(read_env_value TS_AUTHKEY)"
+    docker compose --profile remote_ha_tailscale up -d tailscale
     if [[ -n "$ts_auth" ]]; then
-      docker compose --profile remote_ha_tailscale up -d tailscale
       echo "[cmd] ✅ Tailscale remote profile started (TS_AUTHKEY detected)."
     else
-      echo "[cmd] ℹ️ TS_AUTHKEY trống, bỏ qua Tailscale remote profile."
+      echo "[cmd] ℹ️ TS_AUTHKEY trống: vẫn bật tailscale bằng state đã lưu (nếu có)."
     fi
 
     echo "[cmd] Waiting for Frigate health check..."
@@ -205,9 +205,7 @@ case "${1:-}" in
     fi
     ts_auth="$(read_env_value TS_AUTHKEY)"
     if [[ -z "$ts_auth" ]]; then
-      echo "TS_AUTHKEY is empty in .env"
-      echo "Set TS_AUTHKEY first, then rerun ./cmd remote-up"
-      exit 1
+      echo "[cmd] TS_AUTHKEY trống. Tiếp tục bật tailscale bằng state đã lưu (nếu có)."
     fi
 
     docker compose --profile remote_ha_tailscale up -d tailscale

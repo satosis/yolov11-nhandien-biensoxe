@@ -97,6 +97,7 @@ Tích hợp sẵn:
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
   - `switch.shed_ptz_mode`: công tắc điều khiển nhanh (Bật = panorama, Tắt = gate) để dễ thao tác ngay trên tile.
+  - Cụm 4 nút PTZ: `button.shed_ptz_up`, `button.shed_ptz_down`, `button.shed_ptz_left`, `button.shed_ptz_right` để chỉnh góc camera theo từng nấc.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)

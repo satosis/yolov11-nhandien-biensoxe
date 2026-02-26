@@ -4,6 +4,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 
@@ -59,6 +60,8 @@ ONVIF_PASS = os.getenv("ONVIF_PASS", "")
 ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
 ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
 ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
+PTZ_MOVE_SPEED = float(os.getenv("PTZ_MOVE_SPEED", "0.5"))
+PTZ_MOVE_DURATION = float(os.getenv("PTZ_MOVE_DURATION", "0.35"))
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -90,6 +93,10 @@ COMMAND_TOPICS = {
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/ptz_mode",
+    "shed/cmd/ptz_up",
+    "shed/cmd/ptz_down",
+    "shed/cmd/ptz_left",
+    "shed/cmd/ptz_right",
     "shed/cmd/view_heartbeat",
     "shed/cmd/door",
 }
@@ -507,6 +514,34 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_gate",
             "device": device,
         },
+        "homeassistant/button/shed_ptz_up/config": {
+            "name": "PTZ Up",
+            "command_topic": "shed/cmd/ptz_up",
+            "unique_id": "shed_ptz_up",
+            "icon": "mdi:arrow-up-bold-circle-outline",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_down/config": {
+            "name": "PTZ Down",
+            "command_topic": "shed/cmd/ptz_down",
+            "unique_id": "shed_ptz_down",
+            "icon": "mdi:arrow-down-bold-circle-outline",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_left/config": {
+            "name": "PTZ Left",
+            "command_topic": "shed/cmd/ptz_left",
+            "unique_id": "shed_ptz_left",
+            "icon": "mdi:arrow-left-bold-circle-outline",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_right/config": {
+            "name": "PTZ Right",
+            "command_topic": "shed/cmd/ptz_right",
+            "unique_id": "shed_ptz_right",
+            "icon": "mdi:arrow-right-bold-circle-outline",
+            "device": device,
+        },
         "homeassistant/switch/shed_ptz_mode/config": {
             "name": "PTZ Camera Mode",
             "command_topic": "shed/cmd/ptz_mode",
@@ -650,46 +685,99 @@ def is_ocr_enabled() -> bool:
     return get_ptz_state().get("ocr_enabled", 1) == 1
 
 
+def record_ptz_test_call(action: str, success: int) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO ptz_test_calls (ts_utc, preset, success)
+            VALUES (?, ?, ?)
+            """,
+            (utc_now(), action, success),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("PTZ test call insert failed: %s", exc)
+
+
+def get_onvif_ptz_profile() -> tuple[object, str] | tuple[None, None]:
+    try:
+        camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
+        media = camera.create_media_service()
+        ptz = camera.create_ptz_service()
+        if ONVIF_PROFILE_TOKEN:
+            return ptz, ONVIF_PROFILE_TOKEN
+        profiles = media.GetProfiles()
+        if not profiles:
+            logger.warning("No ONVIF profiles found")
+            return None, None
+        return ptz, profiles[0]["token"]
+    except Exception as exc:
+        logger.warning("ONVIF client init failed: %s", exc)
+        return None, None
+
+
 def ptz_goto_preset(preset_token: str) -> bool:
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
         logger.warning("ONVIF preset not configured; skipping PTZ move")
         return False
     if EVENT_BRIDGE_TEST_MODE:
         success = 0 if ONVIF_SIMULATE_FAIL else 1
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO ptz_test_calls (ts_utc, preset, success)
-                VALUES (?, ?, ?)
-                """,
-                (utc_now(), preset_token, success),
-            )
-            conn.commit()
-            conn.close()
-        except sqlite3.Error as exc:
-            logger.warning("PTZ test call insert failed: %s", exc)
+        record_ptz_test_call(preset_token, success)
         if not success:
             logger.warning("ONVIF simulate failure enabled; skipping PTZ move")
             return False
         return True
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return False
     try:
-        camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
-        media = camera.create_media_service()
-        ptz = camera.create_ptz_service()
-        if ONVIF_PROFILE_TOKEN:
-            profile = {"token": ONVIF_PROFILE_TOKEN}
-        else:
-            profiles = media.GetProfiles()
-            if not profiles:
-                logger.warning("No ONVIF profiles found")
-                return False
-            profile = profiles[0]
-        ptz.GotoPreset({"ProfileToken": profile["token"], "PresetToken": preset_token})
+        ptz.GotoPreset({"ProfileToken": profile_token, "PresetToken": preset_token})
         return True
     except Exception as exc:
         logger.warning("ONVIF goto preset failed: %s", exc)
+        return False
+
+
+def ptz_move_direction(direction: str) -> bool:
+    vectors = {
+        "up": (0.0, PTZ_MOVE_SPEED),
+        "down": (0.0, -PTZ_MOVE_SPEED),
+        "left": (-PTZ_MOVE_SPEED, 0.0),
+        "right": (PTZ_MOVE_SPEED, 0.0),
+    }
+    if direction not in vectors:
+        logger.warning("Unsupported PTZ direction: %s", direction)
+        return False
+    if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS):
+        logger.warning("ONVIF not configured; skipping PTZ directional move")
+        return False
+    if EVENT_BRIDGE_TEST_MODE:
+        success = 0 if ONVIF_SIMULATE_FAIL else 1
+        record_ptz_test_call(f"move_{direction}", success)
+        return success == 1
+
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return False
+
+    x, y = vectors[direction]
+    try:
+        ptz.ContinuousMove(
+            {
+                "ProfileToken": profile_token,
+                "Velocity": {
+                    "PanTilt": {"x": x, "y": y},
+                },
+            }
+        )
+        time.sleep(max(0.05, PTZ_MOVE_DURATION))
+        ptz.Stop({"ProfileToken": profile_token, "PanTilt": True, "Zoom": True})
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF directional move failed (%s): %s", direction, exc)
         return False
 
 
@@ -1893,6 +1981,13 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
             handle_mqtt_command("shed/cmd/ptz_gate", "1")
         else:
             logger.warning("Unknown PTZ mode payload: %s", payload)
+        return
+    if topic in {"shed/cmd/ptz_up", "shed/cmd/ptz_down", "shed/cmd/ptz_left", "shed/cmd/ptz_right"}:
+        direction = topic.rsplit("_", 1)[-1]
+        ptz_move_direction(direction)
+        prev_mode = get_ptz_state()["mode"]
+        set_ptz_state("panorama", 0, "ha", utc_now())
+        insert_ptz_event(f"move_{direction}", "manual", prev_mode, "panorama")
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

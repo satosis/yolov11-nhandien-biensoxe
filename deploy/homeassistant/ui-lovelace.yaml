@@ -64,5 +64,9 @@ views:
               url_path: http://127.0.0.1:5000/review
 
       - type: picture-entity
-        title: Gate Camera (Frigate)
+        title: Gate Camera (AI Overlay - Vạch đỏ + khoanh vùng)
+        entity: camera.shed_ai_overlay
+
+      - type: picture-entity
+        title: Gate Camera (Frigate gốc - không overlay)
         entity: camera.frigate_cam1

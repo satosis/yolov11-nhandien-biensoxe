@@ -27,5 +27,12 @@ mqtt:
       state_closed: "closed"
       optimistic: false
 
+camera:
+  - platform: generic
+    name: "Shed AI Overlay"
+    still_image_url: "http://127.0.0.1:8080/video_feed"
+    stream_source: "http://127.0.0.1:8080/video_feed"
+    verify_ssl: false
+
 lovelace:
   mode: yaml

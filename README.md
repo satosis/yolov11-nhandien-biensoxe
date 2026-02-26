@@ -96,6 +96,7 @@ Tích hợp sẵn:
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
+  - `switch.shed_ptz_mode`: công tắc điều khiển nhanh (Bật = panorama, Tắt = gate) để dễ thao tác ngay trên tile.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)

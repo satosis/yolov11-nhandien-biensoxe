@@ -89,6 +89,7 @@ COMMAND_TOPICS = {
     "shed/cmd/gate_closed",
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
+    "shed/cmd/ptz_mode",
     "shed/cmd/view_heartbeat",
     "shed/cmd/door",
 }
@@ -504,6 +505,18 @@ def publish_discovery() -> None:
             "name": "PTZ Gate",
             "command_topic": "shed/cmd/ptz_gate",
             "unique_id": "shed_ptz_gate",
+            "device": device,
+        },
+        "homeassistant/switch/shed_ptz_mode/config": {
+            "name": "PTZ Camera Mode",
+            "command_topic": "shed/cmd/ptz_mode",
+            "state_topic": STATE_TOPICS["ptz_mode"],
+            "payload_on": "panorama",
+            "payload_off": "gate",
+            "state_on": "panorama",
+            "state_off": "gate",
+            "unique_id": "shed_ptz_mode_switch",
+            "icon": "mdi:axis-arrow",
             "device": device,
         },
         "homeassistant/sensor/shed_ptz_mode/config": {
@@ -1871,6 +1884,15 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         prev_mode = get_ptz_state()["mode"]
         set_ptz_state("gate", 1, "ha", None)
         insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        return
+    if topic == "shed/cmd/ptz_mode":
+        normalized = payload.strip().lower()
+        if normalized == "panorama":
+            handle_mqtt_command("shed/cmd/ptz_panorama", "1")
+        elif normalized == "gate":
+            handle_mqtt_command("shed/cmd/ptz_gate", "1")
+        else:
+            logger.warning("Unknown PTZ mode payload: %s", payload)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

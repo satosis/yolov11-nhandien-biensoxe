@@ -120,6 +120,23 @@ Tích hợp sẵn:
 - Chạy profile tunnel: `docker compose --profile remote_ha up -d cloudflared`
 - Trỏ public hostname trong Cloudflare Tunnel về `http://127.0.0.1:8123`.
 
+## Kiến trúc khuyến nghị: HA để điều khiển, NVR để xem lịch sử
+- **Home Assistant**: hiển thị trạng thái + nút điều khiển nhanh (PTZ, reset baseline, cửa cuốn).
+- **NVR (khuyến nghị Frigate)**: lưu record/timeline/events và phát lại lịch sử.
+- Có thể thay Frigate bằng **MotionEye** hoặc **Scrypted**, nhưng Frigate phù hợp nhất khi cần event/object timeline.
+
+### Quy trình tích hợp camera Imou
+1. **Bật ONVIF/RTSP trên Imou**
+   - Trong app Imou Life, bật mục ONVIF/RTSP/Local Protocol (tên có thể khác tùy model).
+   - Tạo user/pass ONVIF/RTSP nếu camera hỗ trợ tách tài khoản.
+2. **Thêm vào HA bằng ONVIF**
+   - HA → Settings → Devices & services → Add integration → ONVIF.
+   - Lợi ích: live stream, PTZ control (nếu hỗ trợ), snapshot/profile stream.
+3. **Giao phần lịch sử cho Frigate**
+   - Dùng RTSP feed cho Frigate.
+   - Frigate cung cấp Timeline / Events / Clips / Retention.
+   - Nếu chỉ dùng HA + ONVIF mà không có NVR, HA chủ yếu là xem live chứ không thay thế đầy đủ chức năng playback lịch sử.
+
 ## Điều khiển PTZ (Camera xoay 360)
 Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`
@@ -142,6 +159,7 @@ Hành vi:
 ```
 
 ## Xử lý sự cố (Troubleshooting)
+- **Muốn xem lịch sử camera ngay trong HA**: dùng nút "Mở Frigate NVR"/"Mở Frigate Events" trên dashboard, hoặc mở trực tiếp `http://<host>:5000`; HA nên dùng cho điều khiển, NVR dùng cho timeline/record.
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `./cmd up` hiện cũng tự fallback lấy user/pass từ `RTSP_URL` và ghi vào `.camera.env` để tránh thiếu biến `{RTSP_USER}`/`{RTSP_PASS}` trong `deploy/frigate/config.yml`.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.

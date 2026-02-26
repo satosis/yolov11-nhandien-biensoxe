@@ -68,3 +68,27 @@ views:
       - type: picture-entity
         title: Gate Camera (Frigate)
         entity: camera.frigate_cam1
+
+
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            title: Lịch sử camera
+            content: |
+              HA dùng để hiển thị/điều khiển nhanh.
+              Xem timeline, clips, events trong Frigate NVR.
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: Mở Frigate NVR
+                icon: mdi:cctv
+                tap_action:
+                  action: url
+                  url_path: http://127.0.0.1:5000
+              - type: button
+                name: Mở Frigate Events
+                icon: mdi:history
+                tap_action:
+                  action: url
+                  url_path: http://127.0.0.1:5000/review
+

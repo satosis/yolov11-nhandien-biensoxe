@@ -60,6 +60,10 @@ ONVIF_PASS = os.getenv("ONVIF_PASS", "")
 ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
 ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
 ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
+ONVIF_PRESET_UP = os.getenv("ONVIF_PRESET_UP", "")
+ONVIF_PRESET_DOWN = os.getenv("ONVIF_PRESET_DOWN", "")
+ONVIF_PRESET_LEFT = os.getenv("ONVIF_PRESET_LEFT", "")
+ONVIF_PRESET_RIGHT = os.getenv("ONVIF_PRESET_RIGHT", "")
 PTZ_MOVE_SPEED = float(os.getenv("PTZ_MOVE_SPEED", "0.5"))
 PTZ_MOVE_DURATION = float(os.getenv("PTZ_MOVE_DURATION", "0.35"))
 EVENT_BRIDGE_TEST_MODE = False
@@ -748,9 +752,20 @@ def ptz_move_direction(direction: str) -> bool:
         "left": (-PTZ_MOVE_SPEED, 0.0),
         "right": (PTZ_MOVE_SPEED, 0.0),
     }
+    preset_by_direction = {
+        "up": ONVIF_PRESET_UP,
+        "down": ONVIF_PRESET_DOWN,
+        "left": ONVIF_PRESET_LEFT,
+        "right": ONVIF_PRESET_RIGHT,
+    }
     if direction not in vectors:
         logger.warning("Unsupported PTZ direction: %s", direction)
         return False
+
+    preset_token = preset_by_direction.get(direction, "").strip()
+    if preset_token:
+        return ptz_goto_preset(preset_token)
+
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS):
         logger.warning("ONVIF not configured; skipping PTZ directional move")
         return False
@@ -764,6 +779,8 @@ def ptz_move_direction(direction: str) -> bool:
         return False
 
     x, y = vectors[direction]
+    duration = max(0.05, PTZ_MOVE_DURATION)
+
     try:
         ptz.ContinuousMove(
             {
@@ -773,11 +790,27 @@ def ptz_move_direction(direction: str) -> bool:
                 },
             }
         )
-        time.sleep(max(0.05, PTZ_MOVE_DURATION))
+        time.sleep(duration)
         ptz.Stop({"ProfileToken": profile_token, "PanTilt": True, "Zoom": True})
         return True
     except Exception as exc:
-        logger.warning("ONVIF directional move failed (%s): %s", direction, exc)
+        logger.warning("ONVIF ContinuousMove failed (%s): %s", direction, exc)
+
+    try:
+        ptz.RelativeMove(
+            {
+                "ProfileToken": profile_token,
+                "Translation": {
+                    "PanTilt": {"x": x * duration, "y": y * duration},
+                },
+                "Speed": {
+                    "PanTilt": {"x": abs(x), "y": abs(y)},
+                },
+            }
+        )
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF RelativeMove failed (%s): %s", direction, exc)
         return False
 
 
@@ -1960,18 +1993,20 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         control_door(payload)
         return
     if topic == "shed/cmd/ptz_panorama":
-        ptz_goto_preset(ONVIF_PRESET_PANORAMA)
-        # Bắt buộc chuyển state để pause OCR bất kể ONVIF có lỗi hay không
         prev_mode = get_ptz_state()["mode"]
-        set_ptz_state("panorama", 0, "ha", utc_now())
-        insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
+        if ptz_goto_preset(ONVIF_PRESET_PANORAMA):
+            set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
+        else:
+            insert_ptz_event("set_panorama_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/ptz_gate":
-        ptz_goto_preset(ONVIF_PRESET_GATE)
-        # Bắt buộc chuyển state để resume OCR bất kể ONVIF có lỗi hay không
         prev_mode = get_ptz_state()["mode"]
-        set_ptz_state("gate", 1, "ha", None)
-        insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        if ptz_goto_preset(ONVIF_PRESET_GATE):
+            set_ptz_state("gate", 1, "ha", None)
+            insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        else:
+            insert_ptz_event("set_gate_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/ptz_mode":
         normalized = payload.strip().lower()
@@ -1984,10 +2019,13 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         return
     if topic in {"shed/cmd/ptz_up", "shed/cmd/ptz_down", "shed/cmd/ptz_left", "shed/cmd/ptz_right"}:
         direction = topic.rsplit("_", 1)[-1]
-        ptz_move_direction(direction)
+        ok = ptz_move_direction(direction)
         prev_mode = get_ptz_state()["mode"]
-        set_ptz_state("panorama", 0, "ha", utc_now())
-        insert_ptz_event(f"move_{direction}", "manual", prev_mode, "panorama")
+        if ok:
+            set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event(f"move_{direction}", "manual", prev_mode, "panorama")
+        else:
+            insert_ptz_event(f"move_{direction}_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

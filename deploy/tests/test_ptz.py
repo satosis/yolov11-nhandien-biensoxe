@@ -268,6 +268,18 @@ def test_onvif_fail(env_file):
     assert_true(calls and calls[0][1] == 0, "ONVIF failure not recorded")
 
 
+def test_directional_fail(env_file):
+    mosquitto_pub(env_file, "shed/cmd/ptz_left", "1")
+    time.sleep(1)
+    rows = db_query("SELECT mode, ocr_enabled FROM ptz_state WHERE id = 1")
+    mode, ocr_enabled = rows[0]
+    assert_true(mode == "gate", f"Directional failure should keep mode gate, got {mode}")
+    assert_true(ocr_enabled == 1, f"Directional failure should keep OCR enabled, got {ocr_enabled}")
+    calls = db_query("SELECT preset, success FROM ptz_test_calls ORDER BY id DESC LIMIT 1")
+    assert_true(calls and calls[0][0] == "move_left", "Directional failure call not recorded")
+    assert_true(calls[0][1] == 0, "Directional failure should be recorded as failed")
+
+
 def test_missing_preset(env_file):
     mosquitto_pub(env_file, "shed/cmd/ptz_panorama", "1")
     time.sleep(1)
@@ -341,6 +353,7 @@ def main():
 
         recreate_event_bridge(ENV_TEST_FAIL)
         test_onvif_fail(ENV_TEST_FAIL)
+        test_directional_fail(ENV_TEST_FAIL)
 
         recreate_event_bridge(ENV_TEST_NO_PRESET)
         test_missing_preset(ENV_TEST_NO_PRESET)

@@ -210,7 +210,7 @@ case "${1:-}" in
 
     docker compose --profile remote_ha_tailscale up -d tailscale
     echo "[cmd] Tailscale started. Remote URL hint:"
-    docker exec tailscale tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); self=data.get("Self",{}); dns=(self.get("DNSName") or "").rstrip("."); print(f"http://{dns}:8123" if dns else "(cannot determine DNSName)")' || true
+    docker exec tailscale tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); self=data.get("Self",{}); dns=(self.get("DNSName") or "").rstrip("."); print(f"https://{dns}:8123" if dns else "(cannot determine DNSName)")' || true
     ;;
   remote-check)
     env_file="${BASE_DIR}/.env"

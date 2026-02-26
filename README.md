@@ -93,14 +93,17 @@ Tích hợp sẵn:
   - `sensor.shed_people_count`: Đếm người.
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
-- Dashboard Lovelace đã có nhóm **Điều khiển camera Imou** với các nút:
+- Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
-  - `button.shed_ptz_gate`: đưa camera về góc cổng OCR.
-  - `button.shed_camera_shift_reset`: reset baseline góc chuẩn sau khi chỉnh camera.
+  - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
+  - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)
 - Tự động mở cửa Tuya khi nhận diện biển số xe quen (`whitelist`).
 - Tự động đóng cửa sau 5 phút nếu không có người.
+- Tự động đưa camera về vị trí mặc định khi không có người 5 phút.
+- HA chỉ hiển thị text số lượng **người/xe qua vạch đỏ** (`sensor.shed_people_count`, `sensor.shed_vehicle_count`).
+- Màu nhãn vùng nhận diện trên video: **Người = vàng**, **Xe = xanh** khi qua vạch đỏ.
 
 
 ## Truy cập Home Assistant từ mọi mạng (không phụ thuộc LAN)

@@ -120,6 +120,10 @@ notification_sent = False
 signal_loss_alerted = False
 tracked_ids = {}
 
+# Màu hiển thị vùng nhận diện theo yêu cầu vận hành
+PERSON_BOX_COLOR = (0, 255, 255)  # vàng
+VEHICLE_BOX_COLOR = (255, 0, 0)   # xanh dương
+
 frame_count = 0
 camera_shift_alerted = False
 camera_monitor = CameraOrientationMonitor(
@@ -195,11 +199,13 @@ while True:
             cls = int(bbox.cls[0])
             center_y = (y1 + y2) // 2
 
+            crossed_red_line = False
             if obj_id in tracked_ids:
                 prev_y = tracked_ids[obj_id]
 
                 if prev_y < LINE_Y and center_y >= LINE_Y:
                     event_msg = ""
+                    crossed_red_line = True
                     if cls == 7:  # Truck
                         truck_count += 1
                         event_msg = f"Xe tải {obj_id} đi vào kho."
@@ -213,6 +219,7 @@ while True:
 
                 elif prev_y >= LINE_Y and center_y < LINE_Y:
                     event_msg = ""
+                    crossed_red_line = True
                     if cls == 7:
                         truck_count = max(0, truck_count - 1)
                         person_count = max(0, person_count - 1)
@@ -230,6 +237,23 @@ while True:
             if cls == 0:
                 last_person_seen_time = time.time()
                 notification_sent = False
+
+            # Hiển thị label vùng nhận diện: người vàng, xe xanh
+            if cls in (0, 7):
+                box_color = PERSON_BOX_COLOR if cls == 0 else VEHICLE_BOX_COLOR
+                label_name = "NGUOI" if cls == 0 else "XE"
+                if crossed_red_line:
+                    label_name += " QUA VACH DO"
+                cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
+                cv2.putText(
+                    frame,
+                    f"{label_name} #{obj_id}",
+                    (x1, max(20, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    box_color,
+                    2,
+                )
 
     # 2. Nhận diện khuôn mặt (mỗi 2 giây)
     if FACE_RECOGNITION_AVAILABLE and int(time.time()) % 2 == 0:
@@ -333,7 +357,7 @@ while True:
     # GUI
     door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
     cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 5)
-    cv2.putText(frame, f"Trai:{truck_count} Phai:{person_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+    cv2.putText(frame, f"Qua vach do - Xe: {truck_count} | Nguoi: {person_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 255), 2)
     cv2.putText(frame, f"Cua: {door_status}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
     
     # Cập nhật thông tin thời gian thực

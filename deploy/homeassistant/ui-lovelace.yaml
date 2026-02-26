@@ -3,92 +3,66 @@ views:
   - title: Overview
     path: overview
     cards:
-      - type: vertical-stack
-        cards:
-          - type: cover
-            entity: cover.cua_cuon_kho
-            name: "Cửa cuốn kho"
-          - type: entities
-            title: Trạng thái kho
-            entities:
-              - sensor.shed_people_count
-              - sensor.shed_vehicle_count
-              - binary_sensor.shed_gate_closed
-              - sensor.shed_ptz_mode
-              - binary_sensor.shed_ocr_enabled
-
-      - type: horizontal-stack
-        cards:
-          - type: button
-            name: Gate Open
-            entity: button.shed_gate_open
-          - type: button
-            name: Gate Closed
-            entity: button.shed_gate_closed
-
       - type: entities
-        title: Điều khiển camera Imou
+        title: Cảnh báo camera
         show_header_toggle: false
         entities:
-          - entity: sensor.shed_ptz_mode
-            name: Chế độ PTZ
-          - entity: binary_sensor.shed_ocr_enabled
-            name: OCR đang bật
           - entity: binary_sensor.shed_camera_shift_motion
-            name: Cảnh báo lệch camera
+            name: Camera bị quay lệch
           - entity: sensor.shed_camera_shift_status
-            name: Trạng thái camera shift
+            name: Trạng thái camera
           - entity: sensor.shed_camera_shift_last_event
-            name: Sự kiện camera gần nhất
+            name: Lần cảnh báo gần nhất
+
+      - type: entities
+        title: Số lượng qua vạch đỏ (text)
+        show_header_toggle: false
+        entities:
+          - entity: sensor.shed_people_count
+            name: Người qua vạch đỏ
+          - entity: sensor.shed_vehicle_count
+            name: Xe qua vạch đỏ
+
+      - type: markdown
+        title: Quy tắc tự động
+        content: |
+          - Nếu không có người 5 phút, camera tự về vị trí mặc định (góc giữa/cổng).
+          - Nhãn vùng nhận diện: **Người = vàng**, **Xe = xanh**.
+          - Nút nhận diện nâng cao làm trên Telegram, không thao tác trên HA.
 
       - type: grid
-        title: Nút điều khiển Imou
+        title: Điều khiển hướng quay camera
         square: false
-        columns: 3
+        columns: 2
         cards:
           - type: button
-            name: Panorama
+            name: Toàn cảnh
             icon: mdi:panorama
             entity: button.shed_ptz_panorama
             tap_action:
               action: toggle
           - type: button
-            name: Về góc cổng
-            icon: mdi:home-export-outline
+            name: Về vị trí mặc định
+            icon: mdi:crosshairs-gps
             entity: button.shed_ptz_gate
             tap_action:
               action: toggle
+
+      - type: horizontal-stack
+        cards:
           - type: button
-            name: Reset baseline
-            icon: mdi:crosshairs-gps
-            entity: button.shed_camera_shift_reset
+            name: Xem Frigate NVR
+            icon: mdi:cctv
             tap_action:
-              action: toggle
+              action: url
+              url_path: http://127.0.0.1:5000
+          - type: button
+            name: Xem Frigate Events
+            icon: mdi:history
+            tap_action:
+              action: url
+              url_path: http://127.0.0.1:5000/review
 
       - type: picture-entity
         title: Gate Camera (Frigate)
         entity: camera.frigate_cam1
-
-
-      - type: vertical-stack
-        cards:
-          - type: markdown
-            title: Lịch sử camera
-            content: |
-              HA dùng để hiển thị/điều khiển nhanh.
-              Xem timeline, clips, events trong Frigate NVR.
-          - type: horizontal-stack
-            cards:
-              - type: button
-                name: Mở Frigate NVR
-                icon: mdi:cctv
-                tap_action:
-                  action: url
-                  url_path: http://127.0.0.1:5000
-              - type: button
-                name: Mở Frigate Events
-                icon: mdi:history
-                tap_action:
-                  action: url
-                  url_path: http://127.0.0.1:5000/review
-

@@ -54,7 +54,7 @@ MATCH_VEHICLE_REENTRY_SECONDS = 86400
 PTZ_AUTO_RETURN_SECONDS = 300
 
 ONVIF_HOST = os.getenv("ONVIF_HOST", "")
-ONVIF_PORT = 80
+ONVIF_PORT = int(os.getenv("ONVIF_PORT", "80"))
 ONVIF_USER = os.getenv("ONVIF_USER", "")
 ONVIF_PASS = os.getenv("ONVIF_PASS", "")
 ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
@@ -801,9 +801,6 @@ def ptz_move_direction(direction: str) -> bool:
                 "Translation": {
                     "PanTilt": {"x": tx, "y": ty},
                 },
-                "Speed": {
-                    "PanTilt": {"x": abs(sx), "y": abs(sy)},
-                },
             }
         )
         return True
@@ -818,6 +815,7 @@ def ptz_move_direction(direction: str) -> bool:
                 "Velocity": {
                     "PanTilt": {"x": sx, "y": sy},
                 },
+                "Timeout": f"PT{duration:.2f}S",
             }
         )
         time.sleep(duration)

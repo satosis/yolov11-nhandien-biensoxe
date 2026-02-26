@@ -150,6 +150,7 @@ Tích hợp sẵn:
 ## Điều khiển PTZ (Camera xoay 360)
 Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`
+- Lưu ý: `ONVIF_PORT` hiện được đọc từ `.env` (không còn cố định 80).
 - `ONVIF_PRESET_GATE`: Vị trí soi cổng.
 - `ONVIF_PRESET_PANORAMA`: Vị trí toàn cảnh.
 - (Tuỳ chọn) `ONVIF_PRESET_UP`, `ONVIF_PRESET_DOWN`, `ONVIF_PRESET_LEFT`, `ONVIF_PRESET_RIGHT`: preset cho 4 nút điều hướng.

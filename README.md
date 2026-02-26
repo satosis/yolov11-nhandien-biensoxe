@@ -118,13 +118,8 @@ Tích hợp sẵn:
 2. Khởi động lại Home Assistant: `docker compose up -d homeassistant`
 3. Trong app Home Assistant Companion, chọn **Connection = Auto** và kiểm tra cả Internal/External URL.
 
-### Tuỳ chọn bật Cloudflare Tunnel ngay trong stack
-- Điền `CLOUDFLARED_TUNNEL_TOKEN` trong `.env`.
-- Chạy profile tunnel: `docker compose --profile remote_ha up -d cloudflared`
-- Trỏ public hostname trong Cloudflare Tunnel về `http://127.0.0.1:8123`.
-
 ### Tuỳ chọn bật Tailscale để truy cập HA qua mạng khác
-- Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin).
+- Điền `TS_AUTHKEY` trong `.env` (Auth key từ Tailscale admin, chỉ cần khi bật profile `remote_ha_tailscale`).
 - Tuỳ chọn đặt `TS_HOSTNAME` (mặc định `ha-gateway`).
 - Chạy profile tailscale:
   - `docker compose --profile remote_ha_tailscale up -d tailscale`
@@ -169,10 +164,15 @@ Hành vi:
 ./cmd whitelist     # Danh sách biển số quen
 ./cmd gate          # Trạng thái cổng
 ./cmd test-ptz      # Test tính năng xoay camera
+./cmd remote-check  # Kiểm tra nhanh cấu hình truy cập HA từ mạng khác
+./cmd webcam-people --camera 0 --model models/yolo26n.pt  # Test nhận diện người trực tiếp từ webcam máy tính
 ```
 
 ## Xử lý sự cố (Troubleshooting)
+- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` chỉ tăng/giảm khi object **đi qua vạch ảo trái/phải** (không phải cứ xuất hiện trong khung hình là tăng).
+- **Cần test độc lập bằng webcam máy tính**: chạy `./cmd webcam-people --camera 0 --model models/yolo26n.pt` để kiểm tra model có nhận diện `person` ngoài pipeline RTSP/Frigate hay không.
 - **Dùng Tailscale nhưng không truy cập được HA**: kiểm tra `tailscale status`, xác nhận node online trong tailnet, và đặt lại `HA_EXTERNAL_URL` theo MagicDNS `http://<TS_HOSTNAME>.<tailnet>.ts.net:8123`.
+- **Không truy cập được HA từ mạng khác**: chạy `./cmd remote-check` để kiểm tra nhanh `.env` (`HA_INTERNAL_URL`, `HA_EXTERNAL_URL`, `TS_AUTHKEY`) và trạng thái cổng local 8123 trước khi debug tiếp.
 - **Muốn xem lịch sử camera ngay trong HA**: dùng nút "Mở Frigate NVR"/"Mở Frigate Events" trên dashboard, hoặc mở trực tiếp `http://<host>:5000`; HA nên dùng cho điều khiển, NVR dùng cho timeline/record.
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
 - **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `./cmd up` hiện cũng tự fallback lấy user/pass từ `RTSP_URL` và ghi vào `.camera.env` để tránh thiếu biến `{RTSP_USER}`/`{RTSP_PASS}` trong `deploy/frigate/config.yml`.

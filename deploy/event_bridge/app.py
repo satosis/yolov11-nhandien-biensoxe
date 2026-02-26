@@ -95,7 +95,7 @@ COMMAND_TOPICS = {
 
 app = FastAPI()
 
-side_streaks: dict[str, int] = {}
+side_streaks: dict[str, tuple[str, int]] = {}
 ptz_state_lock = threading.Lock()
 ptz_state_cache = {
     "mode": "gate",
@@ -1243,9 +1243,26 @@ def maybe_notify_telegram(payload: dict) -> None:
         send_telegram_message(CHAT_ID_NONIMPORTANT, message)
 
 
+def normalize_object_label(label: str | None) -> str:
+    if not isinstance(label, str):
+        return "unknown"
+    normalized = label.strip().lower()
+    aliases = {
+        "people": "person",
+        "human": "person",
+        "man": "person",
+        "woman": "person",
+        "bicycle": "car",
+        "motorbike": "car",
+        "motorcycle": "car",
+        "bus": "truck",
+    }
+    return aliases.get(normalized, normalized or "unknown")
+
+
 def get_track_key(payload: dict) -> str | None:
     camera = payload.get("camera") or "cam"
-    label = payload.get("label") or "unknown"
+    label = normalize_object_label(payload.get("label"))
     track_id = payload.get("id") or payload.get("event_id")
     after = payload.get("after") or {}
     track_id = track_id or after.get("id") or after.get("event_id")
@@ -1268,7 +1285,10 @@ def infer_direction(payload: dict, track_key: str) -> tuple[str | None, str, str
         return None, "none", None
 
     try:
-        center_x = (float(box[0]) + float(box[2])) / 2.0
+        x = float(box[0])
+        width = float(box[2])
+        # Frigate events dùng box = [x, y, width, height].
+        center_x = x + (width / 2.0)
     except (TypeError, ValueError):
         return None, "none", None
 
@@ -1276,22 +1296,29 @@ def infer_direction(payload: dict, track_key: str) -> tuple[str | None, str, str
     track = get_track(track_key)
     last_side = track.get("last_side") if track else None
 
-    if last_side == side:
-        side_streaks[track_key] = side_streaks.get(track_key, 0) + 1
+    prev_side, prev_streak = side_streaks.get(track_key, ("", 0))
+    if prev_side == side:
+        streak = prev_streak + 1
     else:
-        side_streaks[track_key] = 1
+        streak = 1
+    side_streaks[track_key] = (side, streak)
 
-    if side_streaks[track_key] < GATE_DEBOUNCE_UPDATES:
-        update_track_side(track_key, side)
+    if last_side is None:
+        if streak >= GATE_DEBOUNCE_UPDATES:
+            update_track_side(track_key, side)
+        return None, "virtual", side
+
+    if last_side == side:
+        return None, "virtual", side
+
+    if streak < GATE_DEBOUNCE_UPDATES:
         return None, "virtual", side
 
     update_track_side(track_key, side)
-    if last_side and last_side != side:
-        if last_side == INSIDE_SIDE and side != INSIDE_SIDE:
-            return "out", "virtual", side
-        if last_side != INSIDE_SIDE and side == INSIDE_SIDE:
-            return "in", "virtual", side
-
+    if last_side == INSIDE_SIDE and side != INSIDE_SIDE:
+        return "out", "virtual", side
+    if last_side != INSIDE_SIDE and side == INSIDE_SIDE:
+        return "in", "virtual", side
     return None, "virtual", side
 
 
@@ -1609,7 +1636,7 @@ def insert_gate_alert_event(
 
 
 def handle_counting(payload: dict) -> None:
-    label = payload.get("label")
+    label = normalize_object_label(payload.get("label"))
     if label not in {"person", "car", "truck"}:
         return
 

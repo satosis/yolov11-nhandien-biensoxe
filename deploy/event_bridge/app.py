@@ -66,6 +66,9 @@ ONVIF_PRESET_LEFT = os.getenv("ONVIF_PRESET_LEFT", "")
 ONVIF_PRESET_RIGHT = os.getenv("ONVIF_PRESET_RIGHT", "")
 PTZ_MOVE_SPEED = float(os.getenv("PTZ_MOVE_SPEED", "0.5"))
 PTZ_MOVE_DURATION = float(os.getenv("PTZ_MOVE_DURATION", "0.35"))
+PTZ_STEP_SIZE = float(os.getenv("PTZ_STEP_SIZE", "0.12"))
+PTZ_INVERT_PAN = os.getenv("PTZ_INVERT_PAN", "0").strip() == "1"
+PTZ_INVERT_TILT = os.getenv("PTZ_INVERT_TILT", "0").strip() == "1"
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -746,11 +749,17 @@ def ptz_goto_preset(preset_token: str) -> bool:
 
 
 def ptz_move_direction(direction: str) -> bool:
-    vectors = {
+    speed_vectors = {
         "up": (0.0, PTZ_MOVE_SPEED),
         "down": (0.0, -PTZ_MOVE_SPEED),
         "left": (-PTZ_MOVE_SPEED, 0.0),
         "right": (PTZ_MOVE_SPEED, 0.0),
+    }
+    step_vectors = {
+        "up": (0.0, PTZ_STEP_SIZE),
+        "down": (0.0, -PTZ_STEP_SIZE),
+        "left": (-PTZ_STEP_SIZE, 0.0),
+        "right": (PTZ_STEP_SIZE, 0.0),
     }
     preset_by_direction = {
         "up": ONVIF_PRESET_UP,
@@ -758,7 +767,7 @@ def ptz_move_direction(direction: str) -> bool:
         "left": ONVIF_PRESET_LEFT,
         "right": ONVIF_PRESET_RIGHT,
     }
-    if direction not in vectors:
+    if direction not in speed_vectors:
         logger.warning("Unsupported PTZ direction: %s", direction)
         return False
 
@@ -778,15 +787,36 @@ def ptz_move_direction(direction: str) -> bool:
     if not ptz or not profile_token:
         return False
 
-    x, y = vectors[direction]
-    duration = max(0.05, PTZ_MOVE_DURATION)
+    sx, sy = speed_vectors[direction]
+    tx, ty = step_vectors[direction]
+    if PTZ_INVERT_PAN:
+        sx, tx = -sx, -tx
+    if PTZ_INVERT_TILT:
+        sy, ty = -sy, -ty
 
+    try:
+        ptz.RelativeMove(
+            {
+                "ProfileToken": profile_token,
+                "Translation": {
+                    "PanTilt": {"x": tx, "y": ty},
+                },
+                "Speed": {
+                    "PanTilt": {"x": abs(sx), "y": abs(sy)},
+                },
+            }
+        )
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF RelativeMove failed (%s): %s", direction, exc)
+
+    duration = max(0.05, PTZ_MOVE_DURATION)
     try:
         ptz.ContinuousMove(
             {
                 "ProfileToken": profile_token,
                 "Velocity": {
-                    "PanTilt": {"x": x, "y": y},
+                    "PanTilt": {"x": sx, "y": sy},
                 },
             }
         )
@@ -795,22 +825,6 @@ def ptz_move_direction(direction: str) -> bool:
         return True
     except Exception as exc:
         logger.warning("ONVIF ContinuousMove failed (%s): %s", direction, exc)
-
-    try:
-        ptz.RelativeMove(
-            {
-                "ProfileToken": profile_token,
-                "Translation": {
-                    "PanTilt": {"x": x * duration, "y": y * duration},
-                },
-                "Speed": {
-                    "PanTilt": {"x": abs(x), "y": abs(y)},
-                },
-            }
-        )
-        return True
-    except Exception as exc:
-        logger.warning("ONVIF RelativeMove failed (%s): %s", direction, exc)
         return False
 
 

@@ -157,6 +157,7 @@ Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - Nếu không khai báo preset hướng, hệ thống sẽ thử tự tìm preset theo tên gần đúng (`left/right/up/down`, `trai/phai/len/xuong`) trên camera.
 - (Fallback nếu không có preset hướng) `PTZ_STEP_SIZE`, `PTZ_MOVE_SPEED`, `PTZ_MOVE_DURATION`: độ lớn bước + tốc độ nudge bằng ONVIF move.
 - Nếu hướng bấm bị ngược so với app camera: đặt `PTZ_INVERT_PAN=1` và/hoặc `PTZ_INVERT_TILT=1`.
+- Fallback cho Imou khi ONVIF PTZ không chạy: đặt `IMOU_PTZ_BASE_URL` (vd `http://192.168.1.50`), `IMOU_PTZ_USER`, `IMOU_PTZ_PASS`, `IMOU_PTZ_CHANNEL` (mặc định `0`).
 
 Hành vi:
 - Chỉ đổi state PTZ/OCR khi lệnh ONVIF thành công (tránh hiển thị “đã quay” nhưng camera không đổi góc).

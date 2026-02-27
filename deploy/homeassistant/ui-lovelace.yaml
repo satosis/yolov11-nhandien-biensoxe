@@ -56,52 +56,6 @@ views:
                 topic: shed/cmd/ptz_gate
                 payload: "1"
 
-      - type: grid
-        title: Điều khiển PTZ 4 hướng
-        square: true
-        columns: 4
-        cards:
-          - type: button
-            name: Lên
-            icon: mdi:arrow-up-bold-circle-outline
-            show_state: false
-            tap_action:
-              action: call-service
-              service: mqtt.publish
-              data:
-                topic: shed/cmd/ptz_up
-                payload: "1"
-          - type: button
-            name: Xuống
-            icon: mdi:arrow-down-bold-circle-outline
-            show_state: false
-            tap_action:
-              action: call-service
-              service: mqtt.publish
-              data:
-                topic: shed/cmd/ptz_down
-                payload: "1"
-          - type: button
-            name: Trái
-            icon: mdi:arrow-left-bold-circle-outline
-            show_state: false
-            tap_action:
-              action: call-service
-              service: mqtt.publish
-              data:
-                topic: shed/cmd/ptz_left
-                payload: "1"
-          - type: button
-            name: Phải
-            icon: mdi:arrow-right-bold-circle-outline
-            show_state: false
-            tap_action:
-              action: call-service
-              service: mqtt.publish
-              data:
-                topic: shed/cmd/ptz_right
-                payload: "1"
-
 
       - type: horizontal-stack
         cards:

@@ -168,14 +168,6 @@ def test_discovery(env_file):
     for key in ("unique_id", "name", "command_topic", "device"):
         assert_true(key in doc, f"Discovery payload missing {key}")
 
-    for topic in (
-        "homeassistant/button/shed_ptz_up/config",
-        "homeassistant/button/shed_ptz_down/config",
-        "homeassistant/button/shed_ptz_left/config",
-        "homeassistant/button/shed_ptz_right/config",
-    ):
-        directional_payload = mosquitto_sub(env_file, topic)
-        assert_true(directional_payload, f"Missing discovery payload for {topic}")
 
 
 def test_panorama_command(env_file):
@@ -203,18 +195,6 @@ def test_gate_command(env_file):
     assert_true(ocr_enabled == 1, f"Expected ocr_enabled=1, got {ocr_enabled}")
     state = mosquitto_sub(env_file, "shed/state/ptz_mode")
     assert_true(state.endswith("gate"), f"Retained ptz_mode not gate: {state}")
-
-
-def test_directional_command(env_file):
-    mosquitto_pub(env_file, "shed/cmd/ptz_left", "1")
-    time.sleep(1)
-    rows = db_query("SELECT mode, ocr_enabled FROM ptz_state WHERE id = 1")
-    mode, ocr_enabled = rows[0]
-    assert_true(mode == "panorama", f"Expected panorama mode after directional move, got {mode}")
-    assert_true(ocr_enabled == 0, f"Expected ocr_enabled=0 after directional move, got {ocr_enabled}")
-    calls = db_query("SELECT preset, success FROM ptz_test_calls ORDER BY id DESC LIMIT 1")
-    assert_true(calls and calls[0][0] == "move_left", "PTZ call not recorded for left move")
-    assert_true(calls[0][1] == 1, "PTZ left move should succeed")
 
 
 def test_heartbeat(env_file):
@@ -266,18 +246,6 @@ def test_onvif_fail(env_file):
     assert_true(rows[0][0] == "gate", "Mode changed despite ONVIF failure")
     calls = db_query("SELECT preset, success FROM ptz_test_calls ORDER BY id DESC LIMIT 1")
     assert_true(calls and calls[0][1] == 0, "ONVIF failure not recorded")
-
-
-def test_directional_fail(env_file):
-    mosquitto_pub(env_file, "shed/cmd/ptz_left", "1")
-    time.sleep(1)
-    rows = db_query("SELECT mode, ocr_enabled FROM ptz_state WHERE id = 1")
-    mode, ocr_enabled = rows[0]
-    assert_true(mode == "gate", f"Directional failure should keep mode gate, got {mode}")
-    assert_true(ocr_enabled == 1, f"Directional failure should keep OCR enabled, got {ocr_enabled}")
-    calls = db_query("SELECT preset, success FROM ptz_test_calls ORDER BY id DESC LIMIT 1")
-    assert_true(calls and calls[0][0] == "move_left", "Directional failure call not recorded")
-    assert_true(calls[0][1] == 0, "Directional failure should be recorded as failed")
 
 
 def test_missing_preset(env_file):
@@ -344,7 +312,6 @@ def main():
         test_discovery(ENV_TEST)
         test_panorama_command(ENV_TEST)
         test_gate_command(ENV_TEST)
-        test_directional_command(ENV_TEST)
         test_heartbeat(ENV_TEST)
         test_no_auto_return_with_heartbeat(ENV_TEST, auto_return_seconds)
         test_auto_return(ENV_TEST, auto_return_seconds)
@@ -353,7 +320,6 @@ def main():
 
         recreate_event_bridge(ENV_TEST_FAIL)
         test_onvif_fail(ENV_TEST_FAIL)
-        test_directional_fail(ENV_TEST_FAIL)
 
         recreate_event_bridge(ENV_TEST_NO_PRESET)
         test_missing_preset(ENV_TEST_NO_PRESET)

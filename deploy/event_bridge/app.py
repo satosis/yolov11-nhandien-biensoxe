@@ -105,10 +105,6 @@ COMMAND_TOPICS = {
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/ptz_mode",
-    "shed/cmd/ptz_up",
-    "shed/cmd/ptz_down",
-    "shed/cmd/ptz_left",
-    "shed/cmd/ptz_right",
     "shed/cmd/view_heartbeat",
     "shed/cmd/door",
 }
@@ -527,34 +523,6 @@ def publish_discovery() -> None:
             "name": "PTZ Gate",
             "command_topic": "shed/cmd/ptz_gate",
             "unique_id": "shed_ptz_gate",
-            "device": device,
-        },
-        "homeassistant/button/shed_ptz_up/config": {
-            "name": "PTZ Up",
-            "command_topic": "shed/cmd/ptz_up",
-            "unique_id": "shed_ptz_up",
-            "icon": "mdi:arrow-up-bold-circle-outline",
-            "device": device,
-        },
-        "homeassistant/button/shed_ptz_down/config": {
-            "name": "PTZ Down",
-            "command_topic": "shed/cmd/ptz_down",
-            "unique_id": "shed_ptz_down",
-            "icon": "mdi:arrow-down-bold-circle-outline",
-            "device": device,
-        },
-        "homeassistant/button/shed_ptz_left/config": {
-            "name": "PTZ Left",
-            "command_topic": "shed/cmd/ptz_left",
-            "unique_id": "shed_ptz_left",
-            "icon": "mdi:arrow-left-bold-circle-outline",
-            "device": device,
-        },
-        "homeassistant/button/shed_ptz_right/config": {
-            "name": "PTZ Right",
-            "command_topic": "shed/cmd/ptz_right",
-            "unique_id": "shed_ptz_right",
-            "icon": "mdi:arrow-right-bold-circle-outline",
             "device": device,
         },
         "homeassistant/switch/shed_ptz_mode/config": {
@@ -2138,16 +2106,6 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
             handle_mqtt_command("shed/cmd/ptz_gate", "1")
         else:
             logger.warning("Unknown PTZ mode payload: %s", payload)
-        return
-    if topic in {"shed/cmd/ptz_up", "shed/cmd/ptz_down", "shed/cmd/ptz_left", "shed/cmd/ptz_right"}:
-        direction = topic.rsplit("_", 1)[-1]
-        ok = ptz_move_direction(direction)
-        prev_mode = get_ptz_state()["mode"]
-        if ok:
-            set_ptz_state("panorama", 0, "ha", utc_now())
-            insert_ptz_event(f"move_{direction}", "manual", prev_mode, "panorama")
-        else:
-            insert_ptz_event(f"move_{direction}_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

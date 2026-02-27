@@ -90,7 +90,7 @@ Tích hợp sẵn:
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
-  - `button.shed_ptz_up/down/left/right/stop`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
+  - `button.shed_ptz_up/down/left/right`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
   - `switch.shed_ocr_enabled`: có thêm thuộc tính `countdown_minutes`/`countdown_seconds` để theo dõi thời gian tự bật lại OCR (mặc định 5 phút).
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 

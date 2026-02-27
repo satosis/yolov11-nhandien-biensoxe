@@ -574,14 +574,6 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_gate",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_stop/config": {
-            "name": "PTZ Stop",
-            "command_topic": "shed/cmd/ptz_operation",
-            "payload_press": "8",
-            "unique_id": "shed_ptz_stop",
-            "icon": "mdi:stop",
-            "device": device,
-        },
         "homeassistant/switch/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
@@ -591,8 +583,7 @@ def publish_discovery() -> None:
             "state_on": "1",
             "state_off": "0",
             "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
-            "unique_id": "shed_ocr_enabled_switch",
-            "icon": "mdi:text-recognition",
+            "unique_id": "shed_ocr_enabled",
             "device": device,
         },
     }
@@ -604,6 +595,9 @@ def publish_discovery() -> None:
     for legacy_topic in (
         "homeassistant/switch/shed_ptz_mode/config",
         "homeassistant/sensor/shed_ptz_mode/config",
+        "homeassistant/binary_sensor/shed_ocr_enabled/config",
+        "homeassistant/sensor/shed_ptz_countdown_seconds/config",
+        "homeassistant/button/shed_ptz_stop/config",
     ):
         mqtt_publish(legacy_topic, "", retain=True)
 

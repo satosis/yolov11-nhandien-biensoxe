@@ -67,16 +67,6 @@ views:
                 topic: shed/cmd/ptz_panorama
                 payload: "1"
           - type: button
-            name: Dừng
-            icon: mdi:stop
-            show_state: false
-            tap_action:
-              action: call-service
-              service: mqtt.publish
-              data:
-                topic: shed/cmd/ptz_operation
-                payload: '{"operation":"8","duration":100}'
-          - type: button
             name: Trái
             icon: mdi:arrow-left-bold
             show_state: false

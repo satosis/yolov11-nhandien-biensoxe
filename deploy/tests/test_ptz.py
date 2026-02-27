@@ -169,6 +169,7 @@ def test_discovery(env_file):
         assert_true(key in doc, f"Discovery payload missing {key}")
 
 
+
 def test_panorama_command(env_file):
     mosquitto_pub(env_file, "shed/cmd/ptz_panorama", "1")
     time.sleep(1)

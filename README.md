@@ -49,13 +49,7 @@ Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự d�
 - Nếu vượt ngưỡng liên tiếp (`rotation`, `translation`, `inlier ratio`, `scale`) thì tạo sự kiện `CAMERA_SHIFT` và gửi cảnh báo Telegram.
 - Khi camera quay về gần góc cũ, hệ thống ghi `CAMERA_SHIFT_RECOVERED`.
 
-Các biến tinh chỉnh trong `.env`:
-- `CAMERA_SHIFT_CHECK_EVERY_FRAMES`
-- `CAMERA_SHIFT_MIN_INLIER_RATIO`
-- `CAMERA_SHIFT_MAX_ROTATION_DEG`
-- `CAMERA_SHIFT_MAX_TRANSLATION_PX`
-- `CAMERA_SHIFT_MAX_SCALE_DELTA`
-- `CAMERA_SHIFT_ALERT_CONSECUTIVE`
+Các ngưỡng giám sát camera hiện được cố định trong code (không cần set trong `.env`).
 
 ## Tính năng Đếm Người & Xe
 - Hệ thống tự động đếm số lượng người và xe tải ra/vào.

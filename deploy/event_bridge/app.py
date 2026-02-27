@@ -1,9 +1,11 @@
 import json
+import hashlib
 import logging
 import os
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 
@@ -20,9 +22,6 @@ logger = logging.getLogger("event_bridge")
 MQTT_HOST = "mosquitto"
 MQTT_PORT = 1883
 MQTT_TOPIC = "frigate/events"
-MQTT_USERNAME = os.getenv("MQTT_USERNAME")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
-
 DB_PATH = "/data/events.db"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -52,13 +51,31 @@ MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
 PTZ_AUTO_RETURN_SECONDS = 300
 
-ONVIF_HOST = os.getenv("ONVIF_HOST", "")
+ONVIF_HOST = ""
 ONVIF_PORT = 80
-ONVIF_USER = os.getenv("ONVIF_USER", "")
-ONVIF_PASS = os.getenv("ONVIF_PASS", "")
-ONVIF_PROFILE_TOKEN = os.getenv("ONVIF_PROFILE_TOKEN", "")
-ONVIF_PRESET_GATE = os.getenv("ONVIF_PRESET_GATE", "")
-ONVIF_PRESET_PANORAMA = os.getenv("ONVIF_PRESET_PANORAMA", "")
+ONVIF_USER = ""
+ONVIF_PASS = ""
+ONVIF_PROFILE_TOKEN = ""
+ONVIF_PRESET_GATE = "gate"
+ONVIF_PRESET_PANORAMA = "panorama"
+ONVIF_PRESET_UP = ""
+ONVIF_PRESET_DOWN = ""
+ONVIF_PRESET_LEFT = ""
+ONVIF_PRESET_RIGHT = ""
+PTZ_MOVE_SPEED = 0.5
+PTZ_MOVE_DURATION = 0.35
+PTZ_STEP_SIZE = 0.12
+PTZ_INVERT_PAN = False
+PTZ_INVERT_TILT = False
+IMOU_OPEN_API_BASE = "https://openapi-sg.easy4ip.com/openapi"
+IMOU_OPEN_APP_ID = os.getenv("IMOU_OPEN_APP_ID", "").strip()
+IMOU_OPEN_APP_SECRET = os.getenv("IMOU_OPEN_APP_SECRET", "").strip()
+IMOU_OPEN_DEVICE_ID = os.getenv("IMOU_OPEN_DEVICE_ID", "").strip()
+IMOU_OPEN_CHANNEL_ID = "0"
+IMOU_OPEN_TIMEOUT = 20.0
+IMOU_OPEN_PANORAMA_OPERATION = ""
+IMOU_OPEN_GATE_OPERATION = ""
+IMOU_OPEN_MOVE_DURATION_MS = 1000
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -89,6 +106,8 @@ COMMAND_TOPICS = {
     "shed/cmd/gate_closed",
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
+    "shed/cmd/ptz_mode",
+    "shed/cmd/ptz_operation",
     "shed/cmd/view_heartbeat",
     "shed/cmd/door",
 }
@@ -106,6 +125,12 @@ ptz_state_cache = {
 }
 
 mqtt_client: mqtt.Client | None = None
+
+ptz_presets_lock = threading.Lock()
+ptz_presets_cache: dict[str, str] = {}
+imou_open_token_lock = threading.Lock()
+imou_open_token: str | None = None
+imou_open_token_expiry = 0.0
 
 
 TELEGRAM_BOT_COMMANDS = [
@@ -506,6 +531,18 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_gate",
             "device": device,
         },
+        "homeassistant/switch/shed_ptz_mode/config": {
+            "name": "PTZ Camera Mode",
+            "command_topic": "shed/cmd/ptz_mode",
+            "state_topic": STATE_TOPICS["ptz_mode"],
+            "payload_on": "panorama",
+            "payload_off": "gate",
+            "state_on": "panorama",
+            "state_off": "gate",
+            "unique_id": "shed_ptz_mode_switch",
+            "icon": "mdi:axis-arrow",
+            "device": device,
+        },
         "homeassistant/sensor/shed_ptz_mode/config": {
             "name": "PTZ Mode",
             "state_topic": STATE_TOPICS["ptz_mode"],
@@ -637,47 +674,264 @@ def is_ocr_enabled() -> bool:
     return get_ptz_state().get("ocr_enabled", 1) == 1
 
 
+def record_ptz_test_call(action: str, success: int) -> None:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO ptz_test_calls (ts_utc, preset, success)
+            VALUES (?, ?, ?)
+            """,
+            (utc_now(), action, success),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        logger.warning("PTZ test call insert failed: %s", exc)
+
+
+def get_onvif_ptz_profile() -> tuple[object, str] | tuple[None, None]:
+    try:
+        camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
+        media = camera.create_media_service()
+        ptz = camera.create_ptz_service()
+        if ONVIF_PROFILE_TOKEN:
+            return ptz, ONVIF_PROFILE_TOKEN
+        profiles = media.GetProfiles()
+        if not profiles:
+            logger.warning("No ONVIF profiles found")
+            return None, None
+        return ptz, profiles[0]["token"]
+    except Exception as exc:
+        logger.warning("ONVIF client init failed: %s", exc)
+        return None, None
+
+
+def find_directional_preset_token(direction: str) -> str:
+    configured = {
+        "up": ONVIF_PRESET_UP,
+        "down": ONVIF_PRESET_DOWN,
+        "left": ONVIF_PRESET_LEFT,
+        "right": ONVIF_PRESET_RIGHT,
+    }.get(direction, "").strip()
+    if configured:
+        return configured
+
+    aliases = {
+        "up": ("up", "len", "tren"),
+        "down": ("down", "xuong", "duoi"),
+        "left": ("left", "trai"),
+        "right": ("right", "phai"),
+    }
+
+    with ptz_presets_lock:
+        if direction in ptz_presets_cache:
+            return ptz_presets_cache[direction]
+
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return ""
+
+    try:
+        presets = ptz.GetPresets({"ProfileToken": profile_token})
+    except Exception as exc:
+        logger.warning("ONVIF GetPresets failed: %s", exc)
+        return ""
+
+    target_token = ""
+    words = aliases.get(direction, ())
+    for preset in presets or []:
+        token = str(preset.get("token") or preset.get("PresetToken") or "").strip()
+        name = str(preset.get("Name") or "").strip().lower()
+        if token and any(word in name for word in words):
+            target_token = token
+            break
+
+    if target_token:
+        with ptz_presets_lock:
+            ptz_presets_cache[direction] = target_token
+    return target_token
+
+
+def imou_open_enabled() -> bool:
+    return bool(IMOU_OPEN_API_BASE and IMOU_OPEN_APP_ID and IMOU_OPEN_APP_SECRET and IMOU_OPEN_DEVICE_ID)
+
+
+def imou_open_sign(ts: int, nonce: str) -> str:
+    raw = f"time:{ts},nonce:{nonce},appSecret:{IMOU_OPEN_APP_SECRET}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def imou_open_call(method: str, params: dict) -> dict | None:
+    if not imou_open_enabled():
+        return None
+    ts = int(time.time())
+    nonce = str(uuid.uuid4())
+    payload = {
+        "id": str(uuid.uuid4()),
+        "system": {
+            "ver": "1.0",
+            "appId": IMOU_OPEN_APP_ID,
+            "time": ts,
+            "nonce": nonce,
+            "sign": imou_open_sign(ts, nonce),
+        },
+        "params": params,
+    }
+    try:
+        response = requests.post(
+            f"{IMOU_OPEN_API_BASE.rstrip('/')}/{method}",
+            json=payload,
+            timeout=IMOU_OPEN_TIMEOUT,
+        )
+        response.raise_for_status()
+        doc = response.json()
+        if doc.get("result"):
+            return doc
+        logger.warning("Imou OpenAPI %s failed: %s", method, doc)
+        return None
+    except Exception as exc:
+        logger.warning("Imou OpenAPI request failed (%s): %s", method, exc)
+        return None
+
+
+def imou_open_get_token() -> str | None:
+    global imou_open_token, imou_open_token_expiry
+    if not imou_open_enabled():
+        return None
+
+    now = time.time()
+    with imou_open_token_lock:
+        if imou_open_token and now < imou_open_token_expiry - 60:
+            return imou_open_token
+
+    doc = imou_open_call("accessToken", {})
+    token = (((doc or {}).get("result") or {}).get("data") or {}).get("accessToken")
+    if not token:
+        return None
+
+    with imou_open_token_lock:
+        imou_open_token = token
+        imou_open_token_expiry = time.time() + 3 * 24 * 3600
+    return token
+
+
+def imou_open_control_move_ptz(operation: str, duration_ms: int) -> bool:
+    token = imou_open_get_token()
+    if not token:
+        return False
+    params = {
+        "token": token,
+        "deviceId": IMOU_OPEN_DEVICE_ID,
+        "channelId": IMOU_OPEN_CHANNEL_ID,
+        "operation": str(operation),
+        "duration": int(duration_ms),
+    }
+    return imou_open_call("controlMovePTZ", params) is not None
+
+
 def ptz_goto_preset(preset_token: str) -> bool:
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
         logger.warning("ONVIF preset not configured; skipping PTZ move")
         return False
     if EVENT_BRIDGE_TEST_MODE:
         success = 0 if ONVIF_SIMULATE_FAIL else 1
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO ptz_test_calls (ts_utc, preset, success)
-                VALUES (?, ?, ?)
-                """,
-                (utc_now(), preset_token, success),
-            )
-            conn.commit()
-            conn.close()
-        except sqlite3.Error as exc:
-            logger.warning("PTZ test call insert failed: %s", exc)
+        record_ptz_test_call(preset_token, success)
         if not success:
             logger.warning("ONVIF simulate failure enabled; skipping PTZ move")
             return False
         return True
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return False
     try:
-        camera = ONVIFCamera(ONVIF_HOST, ONVIF_PORT, ONVIF_USER, ONVIF_PASS)
-        media = camera.create_media_service()
-        ptz = camera.create_ptz_service()
-        if ONVIF_PROFILE_TOKEN:
-            profile = {"token": ONVIF_PROFILE_TOKEN}
-        else:
-            profiles = media.GetProfiles()
-            if not profiles:
-                logger.warning("No ONVIF profiles found")
-                return False
-            profile = profiles[0]
-        ptz.GotoPreset({"ProfileToken": profile["token"], "PresetToken": preset_token})
+        ptz.GotoPreset({"ProfileToken": profile_token, "PresetToken": preset_token})
         return True
     except Exception as exc:
         logger.warning("ONVIF goto preset failed: %s", exc)
         return False
+
+
+def ptz_move_direction(direction: str) -> bool:
+    speed_vectors = {
+        "up": (0.0, PTZ_MOVE_SPEED),
+        "down": (0.0, -PTZ_MOVE_SPEED),
+        "left": (-PTZ_MOVE_SPEED, 0.0),
+        "right": (PTZ_MOVE_SPEED, 0.0),
+    }
+    step_vectors = {
+        "up": (0.0, PTZ_STEP_SIZE),
+        "down": (0.0, -PTZ_STEP_SIZE),
+        "left": (-PTZ_STEP_SIZE, 0.0),
+        "right": (PTZ_STEP_SIZE, 0.0),
+    }
+    if direction not in speed_vectors:
+        logger.warning("Unsupported PTZ direction: %s", direction)
+        return False
+
+    preset_token = find_directional_preset_token(direction)
+    if preset_token:
+        return ptz_goto_preset(preset_token)
+
+    if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS):
+        logger.warning("ONVIF not configured; skipping PTZ directional move")
+        return False
+    if EVENT_BRIDGE_TEST_MODE:
+        success = 0 if ONVIF_SIMULATE_FAIL else 1
+        record_ptz_test_call(f"move_{direction}", success)
+        return success == 1
+
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return False
+
+    sx, sy = speed_vectors[direction]
+    tx, ty = step_vectors[direction]
+    if PTZ_INVERT_PAN:
+        sx, tx = -sx, -tx
+    if PTZ_INVERT_TILT:
+        sy, ty = -sy, -ty
+
+    pan_tilt_step = {}
+    pan_tilt_speed = {}
+    if abs(tx) > 1e-9:
+        pan_tilt_step["x"] = tx
+        pan_tilt_speed["x"] = abs(sx)
+    if abs(ty) > 1e-9:
+        pan_tilt_step["y"] = ty
+        pan_tilt_speed["y"] = abs(sy)
+
+    try:
+        req = {
+            "ProfileToken": profile_token,
+            "Translation": {"PanTilt": pan_tilt_step},
+        }
+        if pan_tilt_speed:
+            req["Speed"] = {"PanTilt": pan_tilt_speed}
+        ptz.RelativeMove(req)
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF RelativeMove failed (%s): %s", direction, exc)
+
+    duration = max(0.05, PTZ_MOVE_DURATION)
+    try:
+        ptz.ContinuousMove(
+            {
+                "ProfileToken": profile_token,
+                "Velocity": {
+                    "PanTilt": {k: v for k, v in (("x", sx), ("y", sy)) if abs(v) > 1e-9},
+                },
+                "Timeout": f"PT{duration:.2f}S",
+            }
+        )
+        time.sleep(duration)
+        ptz.Stop({"ProfileToken": profile_token, "PanTilt": True, "Zoom": True})
+        return True
+    except Exception as exc:
+        logger.warning("ONVIF ContinuousMove failed (%s): %s", direction, exc)
+
+    return False
 
 
 def ensure_state_publish_loop() -> None:
@@ -1859,18 +2113,61 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         control_door(payload)
         return
     if topic == "shed/cmd/ptz_panorama":
-        ptz_goto_preset(ONVIF_PRESET_PANORAMA)
-        # Bắt buộc chuyển state để pause OCR bất kể ONVIF có lỗi hay không
         prev_mode = get_ptz_state()["mode"]
-        set_ptz_state("panorama", 0, "ha", utc_now())
-        insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
+        moved = ptz_goto_preset(ONVIF_PRESET_PANORAMA)
+        if not moved and IMOU_OPEN_PANORAMA_OPERATION:
+            moved = imou_open_control_move_ptz(IMOU_OPEN_PANORAMA_OPERATION, IMOU_OPEN_MOVE_DURATION_MS)
+        if moved:
+            set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
+        else:
+            insert_ptz_event("set_panorama_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/ptz_gate":
-        ptz_goto_preset(ONVIF_PRESET_GATE)
-        # Bắt buộc chuyển state để resume OCR bất kể ONVIF có lỗi hay không
         prev_mode = get_ptz_state()["mode"]
-        set_ptz_state("gate", 1, "ha", None)
-        insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        moved = ptz_goto_preset(ONVIF_PRESET_GATE)
+        if not moved and IMOU_OPEN_GATE_OPERATION:
+            moved = imou_open_control_move_ptz(IMOU_OPEN_GATE_OPERATION, IMOU_OPEN_MOVE_DURATION_MS)
+        if moved:
+            set_ptz_state("gate", 1, "ha", None)
+            insert_ptz_event("set_gate", "manual", prev_mode, "gate")
+        else:
+            insert_ptz_event("set_gate_failed", "manual", prev_mode, prev_mode)
+        return
+    if topic == "shed/cmd/ptz_mode":
+        normalized = payload.strip().lower()
+        if normalized == "panorama":
+            handle_mqtt_command("shed/cmd/ptz_panorama", "1")
+        elif normalized == "gate":
+            handle_mqtt_command("shed/cmd/ptz_gate", "1")
+        else:
+            logger.warning("Unknown PTZ mode payload: %s", payload)
+        return
+    if topic == "shed/cmd/ptz_operation":
+        operation = ""
+        duration_ms = IMOU_OPEN_MOVE_DURATION_MS
+        normalized = payload.strip()
+        if normalized.startswith("{"):
+            try:
+                data = json.loads(normalized)
+                operation = str(data.get("operation", "")).strip()
+                duration_ms = int(data.get("duration", duration_ms))
+            except Exception:
+                logger.warning("Invalid ptz_operation JSON payload: %s", payload)
+                return
+        else:
+            operation = normalized
+
+        if not operation:
+            logger.warning("Empty ptz_operation payload")
+            return
+
+        prev_mode = get_ptz_state()["mode"]
+        if imou_open_control_move_ptz(operation, duration_ms):
+            set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event(f"imou_op_{operation}", "manual", prev_mode, "panorama")
+        else:
+            insert_ptz_event(f"imou_op_{operation}_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")
@@ -1902,8 +2199,6 @@ def start_mqtt_loop() -> None:
     global mqtt_client
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client = client
-    if MQTT_USERNAME:
-        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
     client.on_message = on_mqtt_message
 

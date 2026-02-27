@@ -22,9 +22,6 @@ logger = logging.getLogger("event_bridge")
 MQTT_HOST = "mosquitto"
 MQTT_PORT = 1883
 MQTT_TOPIC = "frigate/events"
-MQTT_USERNAME = os.getenv("MQTT_USERNAME")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
-
 DB_PATH = "/data/events.db"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -54,10 +51,10 @@ MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
 PTZ_AUTO_RETURN_SECONDS = 300
 
-ONVIF_HOST = os.getenv("ONVIF_HOST", "")
+ONVIF_HOST = ""
 ONVIF_PORT = 80
-ONVIF_USER = os.getenv("ONVIF_USER", "")
-ONVIF_PASS = os.getenv("ONVIF_PASS", "")
+ONVIF_USER = ""
+ONVIF_PASS = ""
 ONVIF_PROFILE_TOKEN = ""
 ONVIF_PRESET_GATE = "gate"
 ONVIF_PRESET_PANORAMA = "panorama"
@@ -2202,8 +2199,6 @@ def start_mqtt_loop() -> None:
     global mqtt_client
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client = client
-    if MQTT_USERNAME:
-        client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 
     client.on_message = on_mqtt_message
 

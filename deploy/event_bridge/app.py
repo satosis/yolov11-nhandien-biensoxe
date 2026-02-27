@@ -122,6 +122,9 @@ ptz_state_cache = {
 
 mqtt_client: mqtt.Client | None = None
 
+ptz_presets_lock = threading.Lock()
+ptz_presets_cache: dict[str, str] = {}
+
 
 TELEGRAM_BOT_COMMANDS = [
     {"command": "gate_open", "description": "Mở trạng thái cổng"},
@@ -726,6 +729,52 @@ def get_onvif_ptz_profile() -> tuple[object, str] | tuple[None, None]:
         return None, None
 
 
+def find_directional_preset_token(direction: str) -> str:
+    configured = {
+        "up": ONVIF_PRESET_UP,
+        "down": ONVIF_PRESET_DOWN,
+        "left": ONVIF_PRESET_LEFT,
+        "right": ONVIF_PRESET_RIGHT,
+    }.get(direction, "").strip()
+    if configured:
+        return configured
+
+    aliases = {
+        "up": ("up", "len", "tren"),
+        "down": ("down", "xuong", "duoi"),
+        "left": ("left", "trai"),
+        "right": ("right", "phai"),
+    }
+
+    with ptz_presets_lock:
+        if direction in ptz_presets_cache:
+            return ptz_presets_cache[direction]
+
+    ptz, profile_token = get_onvif_ptz_profile()
+    if not ptz or not profile_token:
+        return ""
+
+    try:
+        presets = ptz.GetPresets({"ProfileToken": profile_token})
+    except Exception as exc:
+        logger.warning("ONVIF GetPresets failed: %s", exc)
+        return ""
+
+    target_token = ""
+    words = aliases.get(direction, ())
+    for preset in presets or []:
+        token = str(preset.get("token") or preset.get("PresetToken") or "").strip()
+        name = str(preset.get("Name") or "").strip().lower()
+        if token and any(word in name for word in words):
+            target_token = token
+            break
+
+    if target_token:
+        with ptz_presets_lock:
+            ptz_presets_cache[direction] = target_token
+    return target_token
+
+
 def ptz_goto_preset(preset_token: str) -> bool:
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
         logger.warning("ONVIF preset not configured; skipping PTZ move")
@@ -761,17 +810,11 @@ def ptz_move_direction(direction: str) -> bool:
         "left": (-PTZ_STEP_SIZE, 0.0),
         "right": (PTZ_STEP_SIZE, 0.0),
     }
-    preset_by_direction = {
-        "up": ONVIF_PRESET_UP,
-        "down": ONVIF_PRESET_DOWN,
-        "left": ONVIF_PRESET_LEFT,
-        "right": ONVIF_PRESET_RIGHT,
-    }
     if direction not in speed_vectors:
         logger.warning("Unsupported PTZ direction: %s", direction)
         return False
 
-    preset_token = preset_by_direction.get(direction, "").strip()
+    preset_token = find_directional_preset_token(direction)
     if preset_token:
         return ptz_goto_preset(preset_token)
 
@@ -794,15 +837,23 @@ def ptz_move_direction(direction: str) -> bool:
     if PTZ_INVERT_TILT:
         sy, ty = -sy, -ty
 
+    pan_tilt_step = {}
+    pan_tilt_speed = {}
+    if abs(tx) > 1e-9:
+        pan_tilt_step["x"] = tx
+        pan_tilt_speed["x"] = abs(sx)
+    if abs(ty) > 1e-9:
+        pan_tilt_step["y"] = ty
+        pan_tilt_speed["y"] = abs(sy)
+
     try:
-        ptz.RelativeMove(
-            {
-                "ProfileToken": profile_token,
-                "Translation": {
-                    "PanTilt": {"x": tx, "y": ty},
-                },
-            }
-        )
+        req = {
+            "ProfileToken": profile_token,
+            "Translation": {"PanTilt": pan_tilt_step},
+        }
+        if pan_tilt_speed:
+            req["Speed"] = {"PanTilt": pan_tilt_speed}
+        ptz.RelativeMove(req)
         return True
     except Exception as exc:
         logger.warning("ONVIF RelativeMove failed (%s): %s", direction, exc)
@@ -813,7 +864,7 @@ def ptz_move_direction(direction: str) -> bool:
             {
                 "ProfileToken": profile_token,
                 "Velocity": {
-                    "PanTilt": {"x": sx, "y": sy},
+                    "PanTilt": {k: v for k, v in (("x", sx), ("y", sy)) if abs(v) > 1e-9},
                 },
                 "Timeout": f"PT{duration:.2f}S",
             }

@@ -154,6 +154,7 @@ Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_PRESET_GATE`: Vị trí soi cổng.
 - `ONVIF_PRESET_PANORAMA`: Vị trí toàn cảnh.
 - (Tuỳ chọn) `ONVIF_PRESET_UP`, `ONVIF_PRESET_DOWN`, `ONVIF_PRESET_LEFT`, `ONVIF_PRESET_RIGHT`: preset cho 4 nút điều hướng.
+- Nếu không khai báo preset hướng, hệ thống sẽ thử tự tìm preset theo tên gần đúng (`left/right/up/down`, `trai/phai/len/xuong`) trên camera.
 - (Fallback nếu không có preset hướng) `PTZ_STEP_SIZE`, `PTZ_MOVE_SPEED`, `PTZ_MOVE_DURATION`: độ lớn bước + tốc độ nudge bằng ONVIF move.
 - Nếu hướng bấm bị ngược so với app camera: đặt `PTZ_INVERT_PAN=1` và/hoặc `PTZ_INVERT_TILT=1`.
 

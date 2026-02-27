@@ -12,18 +12,15 @@ cameras:
   imou_2k:
     ffmpeg:
       inputs:
-        # Main stream for recording
+        # Main stream for recording + detection (ưu tiên độ chính xác nhận diện người)
         - path: rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0
           roles:
             - record
-        # Sub stream for detection (lighter)
-        - path: rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=1
-          roles:
             - detect
     detect:
-      width: 640
-      height: 360
-      fps: 5
+      width: 1280
+      height: 720
+      fps: 8
     objects:
       track:
         - person
@@ -31,10 +28,10 @@ cameras:
         - truck
       filters:
         person:
-          # Giảm false-positive khi camera thấy bàn/quần áo/biên dạng nhiễu
-          threshold: 0.72
-          min_score: 0.55
-          min_area: 2500
+          # Cân bằng: tăng khả năng bắt người so với profile webcam test
+          threshold: 0.58
+          min_score: 0.42
+          min_area: 900
         car:
           threshold: 0.60
           min_score: 0.45

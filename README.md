@@ -166,7 +166,7 @@ Hành vi:
 ```
 
 ## Xử lý sự cố (Troubleshooting)
-- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` chỉ tăng/giảm khi object **đi qua vạch ảo trái/phải** (không phải cứ xuất hiện trong khung hình là tăng).
+- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` đang cấu hình chỉ **tính lúc người đi vào trong qua vạch đỏ** (không giảm khi người đi ra).
   - Đã tối ưu profile mặc định theo hướng nhận người tốt hơn: detect stream dùng `subtype=0` (1280x720@8fps), `person.threshold=0.58`, `person.min_score=0.42`, `person.min_area=900`. Nếu CPU yếu thì giảm về 960x540 hoặc fps=5.
 - **Cần test độc lập bằng webcam máy tính**: chạy `./cmd webcam-people --camera 0 --model models/yolo26n.pt` để kiểm tra model có nhận diện `person` ngoài pipeline RTSP/Frigate hay không.
 - **Dùng Tailscale nhưng không truy cập được HA**: kiểm tra `tailscale status`, xác nhận node online trong tailnet, và đặt lại `HA_EXTERNAL_URL` theo MagicDNS `http://<TS_HOSTNAME>.<tailnet>.ts.net:8123`.

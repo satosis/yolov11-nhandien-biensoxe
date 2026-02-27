@@ -50,6 +50,7 @@ DEDUPE_SECONDS = 15
 MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
 PTZ_AUTO_RETURN_SECONDS = 300
+COUNT_PERSON_ONLY_IN = True
 OCR_MOTION_TRIGGER_LABELS = {"person", "car", "truck", "motorcycle", "bicycle"}
 
 ONVIF_HOST = ""
@@ -2064,20 +2065,23 @@ def handle_counting(payload: dict) -> None:
 
     if direction == "out" and not track["counted_out"]:
         if label == "person":
-            people_count = max(0, people_count - 1)
-            applied_left = apply_left_exit_decrement()
-            note = "left_side_exit_after_vehicle" if applied_left else "person_out"
-            log_counter_event(label, "out", -1, people_count, track_key, source, note)
-            person_session_id = close_person_session(track_key)
-            person_identity = get_person_identity_for_session(person_session_id)
-            insert_driver_attribution(
-                "out",
-                person_identity,
-                "unknown_vehicle",
-                None,
-                person_session_id,
-                {"reason": "person_out_only"},
-            )
+            if COUNT_PERSON_ONLY_IN:
+                log_counter_event(label, "out", 0, people_count, track_key, source, "person_out_ignored")
+            else:
+                people_count = max(0, people_count - 1)
+                applied_left = apply_left_exit_decrement()
+                note = "left_side_exit_after_vehicle" if applied_left else "person_out"
+                log_counter_event(label, "out", -1, people_count, track_key, source, note)
+                person_session_id = close_person_session(track_key)
+                person_identity = get_person_identity_for_session(person_session_id)
+                insert_driver_attribution(
+                    "out",
+                    person_identity,
+                    "unknown_vehicle",
+                    None,
+                    person_session_id,
+                    {"reason": "person_out_only"},
+                )
         else:
             vehicle_count = max(0, vehicle_count - 1)
             log_counter_event(label, "out", -1, vehicle_count, track_key, source, "vehicle_out")

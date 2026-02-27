@@ -576,16 +576,26 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_gate",
             "device": device,
         },
-        "homeassistant/switch/shed_ocr_enabled/config": {
+        "homeassistant/sensor/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
+            "state_topic": STATE_TOPICS["ocr_enabled_meta"],
+            "value_template": "{{ value_json.countdown_text if value_json.countdown_text else 'Bật' }}",
+            "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
+            "unique_id": "shed_ocr_enabled",
+            "icon": "mdi:timer-outline",
+            "device": device,
+        },
+        "homeassistant/switch/shed_ocr_control/config": {
+            "name": "OCR Control",
             "state_topic": STATE_TOPICS["ocr_enabled"],
             "command_topic": "shed/cmd/ocr_enabled",
             "payload_on": "1",
             "payload_off": "0",
             "state_on": "1",
             "state_off": "0",
-            "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
-            "unique_id": "shed_ocr_enabled",
+            "unique_id": "shed_ocr_control",
+            "entity_category": "config",
+            "icon": "mdi:text-recognition",
             "device": device,
         },
     }
@@ -598,6 +608,7 @@ def publish_discovery() -> None:
         "homeassistant/switch/shed_ptz_mode/config",
         "homeassistant/sensor/shed_ptz_mode/config",
         "homeassistant/binary_sensor/shed_ocr_enabled/config",
+        "homeassistant/switch/shed_ocr_enabled/config",
         "homeassistant/sensor/shed_ptz_countdown_seconds/config",
         "homeassistant/button/shed_ptz_stop/config",
     ):

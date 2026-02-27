@@ -34,14 +34,16 @@ views:
         title: OCR tự bật lại sau khi quay tay
         show_header_toggle: false
         entities:
-          - entity: switch.shed_ocr_enabled
-            name: OCR Enabled (bật/tắt)
+          - entity: sensor.shed_ocr_enabled
+            name: OCR Countdown
+          - entity: switch.shed_ocr_control
+            name: OCR Control (bật/tắt)
           - type: attribute
-            entity: switch.shed_ocr_enabled
+            entity: sensor.shed_ocr_enabled
             attribute: countdown_minutes
             name: Đếm ngược bật OCR (phút)
           - type: attribute
-            entity: switch.shed_ocr_enabled
+            entity: sensor.shed_ocr_enabled
             attribute: countdown_text
             name: Đếm ngược chi tiết
 

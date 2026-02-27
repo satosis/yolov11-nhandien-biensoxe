@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 
 import paho.mqtt.client as mqtt
 import requests
-from requests.auth import HTTPDigestAuth
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
 from onvif import ONVIFCamera
@@ -71,10 +70,6 @@ PTZ_MOVE_DURATION = 0.35
 PTZ_STEP_SIZE = 0.12
 PTZ_INVERT_PAN = False
 PTZ_INVERT_TILT = False
-IMOU_PTZ_BASE_URL = "http://imou-cam.local"
-IMOU_PTZ_USER = os.getenv("IMOU_PTZ_USER", "").strip()
-IMOU_PTZ_PASS = os.getenv("IMOU_PTZ_PASS", "").strip()
-IMOU_PTZ_CHANNEL = "0"
 IMOU_OPEN_API_BASE = "https://openapi-sg.easy4ip.com/openapi"
 IMOU_OPEN_APP_ID = os.getenv("IMOU_OPEN_APP_ID", "").strip()
 IMOU_OPEN_APP_SECRET = os.getenv("IMOU_OPEN_APP_SECRET", "").strip()
@@ -839,59 +834,6 @@ def imou_open_control_move_ptz(operation: str, duration_ms: int) -> bool:
     return imou_open_call("controlMovePTZ", params) is not None
 
 
-def imou_ptz_move_direction(direction: str) -> bool:
-    if not (IMOU_PTZ_BASE_URL and IMOU_PTZ_USER and IMOU_PTZ_PASS):
-        return False
-
-    code_map = {
-        "left": "Left",
-        "right": "Right",
-        "up": "Up",
-        "down": "Down",
-    }
-    code = code_map.get(direction)
-    if not code:
-        return False
-
-    duration = max(0.05, PTZ_MOVE_DURATION)
-    base = IMOU_PTZ_BASE_URL.rstrip("/")
-    start_url = f"{base}/cgi-bin/ptz.cgi"
-    auth = HTTPDigestAuth(IMOU_PTZ_USER, IMOU_PTZ_PASS)
-
-    try:
-        requests.get(
-            start_url,
-            params={
-                "action": "start",
-                "channel": IMOU_PTZ_CHANNEL,
-                "code": code,
-                "arg1": "0",
-                "arg2": str(max(1, int(PTZ_MOVE_SPEED * 8))),
-                "arg3": "0",
-            },
-            auth=auth,
-            timeout=2,
-        )
-        time.sleep(duration)
-        requests.get(
-            start_url,
-            params={
-                "action": "stop",
-                "channel": IMOU_PTZ_CHANNEL,
-                "code": code,
-                "arg1": "0",
-                "arg2": str(max(1, int(PTZ_MOVE_SPEED * 8))),
-                "arg3": "0",
-            },
-            auth=auth,
-            timeout=2,
-        )
-        return True
-    except Exception as exc:
-        logger.warning("Imou PTZ fallback failed (%s): %s", direction, exc)
-        return False
-
-
 def ptz_goto_preset(preset_token: str) -> bool:
     if not (ONVIF_HOST and ONVIF_USER and ONVIF_PASS and preset_token):
         logger.warning("ONVIF preset not configured; skipping PTZ move")
@@ -992,7 +934,7 @@ def ptz_move_direction(direction: str) -> bool:
     except Exception as exc:
         logger.warning("ONVIF ContinuousMove failed (%s): %s", direction, exc)
 
-    return imou_ptz_move_direction(direction)
+    return False
 
 
 def ensure_state_publish_loop() -> None:

@@ -530,16 +530,20 @@ def publish_discovery() -> None:
             "unique_id": "shed_gate_closed",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_panorama/config": {
-            "name": "PTZ Panorama",
-            "command_topic": "shed/cmd/ptz_panorama",
-            "unique_id": "shed_ptz_panorama",
+        "homeassistant/button/shed_ptz_up/config": {
+            "name": "PTZ Up",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "0",
+            "unique_id": "shed_ptz_up",
+            "icon": "mdi:arrow-up-bold",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_gate/config": {
-            "name": "PTZ Gate",
-            "command_topic": "shed/cmd/ptz_gate",
-            "unique_id": "shed_ptz_gate",
+        "homeassistant/button/shed_ptz_down/config": {
+            "name": "PTZ Down",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "1",
+            "unique_id": "shed_ptz_down",
+            "icon": "mdi:arrow-down-bold",
             "device": device,
         },
         "homeassistant/button/shed_ptz_left/config": {
@@ -558,20 +562,16 @@ def publish_discovery() -> None:
             "icon": "mdi:arrow-right-bold",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_up/config": {
-            "name": "PTZ Up",
-            "command_topic": "shed/cmd/ptz_operation",
-            "payload_press": "0",
-            "unique_id": "shed_ptz_up",
-            "icon": "mdi:arrow-up-bold",
+        "homeassistant/button/shed_ptz_panorama/config": {
+            "name": "PTZ Panorama",
+            "command_topic": "shed/cmd/ptz_panorama",
+            "unique_id": "shed_ptz_panorama",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_down/config": {
-            "name": "PTZ Down",
-            "command_topic": "shed/cmd/ptz_operation",
-            "payload_press": "1",
-            "unique_id": "shed_ptz_down",
-            "icon": "mdi:arrow-down-bold",
+        "homeassistant/button/shed_ptz_gate/config": {
+            "name": "PTZ Gate",
+            "command_topic": "shed/cmd/ptz_gate",
+            "unique_id": "shed_ptz_gate",
             "device": device,
         },
         "homeassistant/button/shed_ptz_stop/config": {
@@ -580,24 +580,6 @@ def publish_discovery() -> None:
             "payload_press": "8",
             "unique_id": "shed_ptz_stop",
             "icon": "mdi:stop",
-            "device": device,
-        },
-        "homeassistant/switch/shed_ptz_mode/config": {
-            "name": "PTZ Camera Mode",
-            "command_topic": "shed/cmd/ptz_mode",
-            "state_topic": STATE_TOPICS["ptz_mode"],
-            "payload_on": "panorama",
-            "payload_off": "gate",
-            "state_on": "panorama",
-            "state_off": "gate",
-            "unique_id": "shed_ptz_mode_switch",
-            "icon": "mdi:axis-arrow",
-            "device": device,
-        },
-        "homeassistant/sensor/shed_ptz_mode/config": {
-            "name": "PTZ Mode",
-            "state_topic": STATE_TOPICS["ptz_mode"],
-            "unique_id": "shed_ptz_mode",
             "device": device,
         },
         "homeassistant/switch/shed_ocr_enabled/config": {
@@ -617,6 +599,13 @@ def publish_discovery() -> None:
 
     for topic, payload in discovery_payloads.items():
         mqtt_publish(topic, json.dumps(payload, ensure_ascii=False), retain=True)
+
+    # Remove deprecated discovery entities from Home Assistant.
+    for legacy_topic in (
+        "homeassistant/switch/shed_ptz_mode/config",
+        "homeassistant/sensor/shed_ptz_mode/config",
+    ):
+        mqtt_publish(legacy_topic, "", retain=True)
 
 
 def get_ptz_countdown_seconds(state: dict | None = None) -> int:

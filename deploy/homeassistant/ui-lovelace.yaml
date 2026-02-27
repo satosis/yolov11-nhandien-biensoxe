@@ -34,8 +34,6 @@ views:
         title: OCR tự bật lại sau khi quay tay
         show_header_toggle: false
         entities:
-          - entity: sensor.shed_ptz_mode
-            name: Chế độ PTZ
           - entity: switch.shed_ocr_enabled
             name: OCR Enabled (bật/tắt)
           - type: attribute

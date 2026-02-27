@@ -134,13 +134,25 @@ views:
               action: url
               url_path: http://127.0.0.1:5000/review
 
-      - type: picture-entity
-        title: "Imou 2k (AI Overlay: có vạch đỏ)"
-        entity: camera.shed_ai_overlay
+      - type: picture-elements
+        title: "Imou 2k (vạch đỏ ngang cửa cuốn)"
+        camera_image: camera.shed_ai_overlay
         camera_view: live
+        elements:
+          - type: state-label
+            entity: sensor.shed_people_count
+            style:
+              left: 50%
+              top: 62%
+              width: 100%
+              height: 6px
+              background: red
+              color: transparent
+              opacity: 0.85
+              transform: translate(-50%, -50%)
 
       - type: markdown
         title: Lưu ý camera
         content: |
-          - Dùng **camera.shed_ai_overlay** để thấy vạch đỏ và nhãn AI.
-          - `camera.frigate_cam1` là luồng gốc của Frigate nên **không có vạch đỏ**.
+          - Vạch đỏ được vẽ trực tiếp trên Home Assistant bằng card **picture-elements**.
+          - Chỉnh vị trí bằng `top` (hiện là `62%`) để khớp đúng ngang cửa cuốn.

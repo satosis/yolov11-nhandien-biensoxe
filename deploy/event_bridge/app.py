@@ -532,7 +532,7 @@ def publish_discovery() -> None:
             "device": device,
         },
         "homeassistant/button/shed_ptz_up/config": {
-            "name": "PTZ Up",
+            "name": "PTZ Move Up",
             "command_topic": "shed/cmd/ptz_operation",
             "payload_press": "0",
             "unique_id": "shed_ptz_up",
@@ -540,7 +540,7 @@ def publish_discovery() -> None:
             "device": device,
         },
         "homeassistant/button/shed_ptz_down/config": {
-            "name": "PTZ Down",
+            "name": "PTZ Move Down",
             "command_topic": "shed/cmd/ptz_operation",
             "payload_press": "1",
             "unique_id": "shed_ptz_down",
@@ -548,7 +548,7 @@ def publish_discovery() -> None:
             "device": device,
         },
         "homeassistant/button/shed_ptz_left/config": {
-            "name": "PTZ Left",
+            "name": "PTZ Move Left",
             "command_topic": "shed/cmd/ptz_operation",
             "payload_press": "2",
             "unique_id": "shed_ptz_left",
@@ -556,7 +556,7 @@ def publish_discovery() -> None:
             "device": device,
         },
         "homeassistant/button/shed_ptz_right/config": {
-            "name": "PTZ Right",
+            "name": "PTZ Move Right",
             "command_topic": "shed/cmd/ptz_operation",
             "payload_press": "3",
             "unique_id": "shed_ptz_right",
@@ -564,13 +564,13 @@ def publish_discovery() -> None:
             "device": device,
         },
         "homeassistant/button/shed_ptz_panorama/config": {
-            "name": "PTZ Panorama",
+            "name": "PTZ Preset Panorama",
             "command_topic": "shed/cmd/ptz_panorama",
             "unique_id": "shed_ptz_panorama",
             "device": device,
         },
         "homeassistant/button/shed_ptz_gate/config": {
-            "name": "PTZ Gate",
+            "name": "PTZ Preset Gate",
             "command_topic": "shed/cmd/ptz_gate",
             "unique_id": "shed_ptz_gate",
             "device": device,

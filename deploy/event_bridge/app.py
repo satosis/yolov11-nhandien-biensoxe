@@ -107,7 +107,7 @@ STATE_TOPICS = {
     "ptz_mode": "shed/state/ptz_mode",
     "ocr_enabled": "shed/state/ocr_enabled",
     "last_view_utc": "shed/state/last_view_utc",
-    "ptz_countdown_seconds": "shed/state/ptz_countdown_seconds",
+    "ocr_enabled_meta": "shed/state/ocr_enabled_meta",
     "door": "shed/state/door",
 }
 
@@ -599,19 +599,12 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_mode",
             "device": device,
         },
-        "homeassistant/sensor/shed_ptz_countdown_seconds/config": {
-            "name": "PTZ OCR Countdown",
-            "state_topic": STATE_TOPICS["ptz_countdown_seconds"],
-            "unique_id": "shed_ptz_countdown_seconds",
-            "unit_of_measurement": "s",
-            "icon": "mdi:timer-outline",
-            "device": device,
-        },
         "homeassistant/binary_sensor/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
             "payload_on": "1",
             "payload_off": "0",
+            "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
             "unique_id": "shed_ocr_enabled",
             "device": device,
         },
@@ -651,7 +644,8 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
-    mqtt_publish(STATE_TOPICS["ptz_countdown_seconds"], str(get_ptz_countdown_seconds(ptz_state)))
+    countdown_seconds = get_ptz_countdown_seconds(ptz_state)
+    mqtt_publish(STATE_TOPICS["ocr_enabled_meta"], json.dumps({"countdown_minutes": countdown_seconds // 60, "countdown_seconds": countdown_seconds}))
     
     with door_state_lock:
         current_door_state = door_state
@@ -1026,7 +1020,8 @@ def auto_return_loop() -> None:
     while True:
         try:
             state = get_ptz_state()
-            mqtt_publish(STATE_TOPICS["ptz_countdown_seconds"], str(get_ptz_countdown_seconds(state)))
+            countdown_seconds = get_ptz_countdown_seconds(state)
+            mqtt_publish(STATE_TOPICS["ocr_enabled_meta"], json.dumps({"countdown_minutes": countdown_seconds // 60, "countdown_seconds": countdown_seconds}))
             if state["mode"] == "panorama":
                 idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ptz_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:

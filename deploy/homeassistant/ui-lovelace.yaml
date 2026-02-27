@@ -38,8 +38,10 @@ views:
             name: Chế độ PTZ
           - entity: binary_sensor.shed_ocr_enabled
             name: OCR đang bật
-          - entity: sensor.shed_ptz_countdown_seconds
-            name: Đếm ngược bật lại OCR (giây)
+          - type: attribute
+            entity: binary_sensor.shed_ocr_enabled
+            attribute: countdown_minutes
+            name: Đếm ngược bật OCR (phút)
 
       - type: grid
         title: Điều khiển hướng quay camera

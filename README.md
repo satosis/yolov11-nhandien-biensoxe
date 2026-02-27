@@ -88,6 +88,7 @@ Tích hợp sẵn:
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
+- Camera có vạch đỏ nằm trên entity `camera.shed_ai_overlay`; camera Frigate gốc (`camera.frigate_cam1`) không vẽ overlay.
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
   - `button.shed_ptz_up/down/left/right`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).

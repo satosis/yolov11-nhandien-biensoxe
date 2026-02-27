@@ -96,8 +96,6 @@ Tích hợp sẵn:
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
-  - `switch.shed_ptz_mode`: công tắc điều khiển nhanh (Bật = panorama, Tắt = gate) để dễ thao tác ngay trên tile.
-  - Cụm 4 nút PTZ: `button.shed_ptz_up`, `button.shed_ptz_down`, `button.shed_ptz_left`, `button.shed_ptz_right` để chỉnh góc camera theo từng nấc.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)
@@ -150,17 +148,10 @@ Tích hợp sẵn:
 ## Điều khiển PTZ (Camera xoay 360)
 Cấu hình trong `.env` để Home Assistant điều khiển xoay camera:
 - `ONVIF_HOST`, `ONVIF_PORT`, `ONVIF_USER`, `ONVIF_PASS`
-- Lưu ý: `ONVIF_PORT` hiện được đọc từ `.env` (không còn cố định 80).
 - `ONVIF_PRESET_GATE`: Vị trí soi cổng.
 - `ONVIF_PRESET_PANORAMA`: Vị trí toàn cảnh.
-- (Tuỳ chọn) `ONVIF_PRESET_UP`, `ONVIF_PRESET_DOWN`, `ONVIF_PRESET_LEFT`, `ONVIF_PRESET_RIGHT`: preset cho 4 nút điều hướng.
-- Nếu không khai báo preset hướng, hệ thống sẽ thử tự tìm preset theo tên gần đúng (`left/right/up/down`, `trai/phai/len/xuong`) trên camera.
-- (Fallback nếu không có preset hướng) `PTZ_STEP_SIZE`, `PTZ_MOVE_SPEED`, `PTZ_MOVE_DURATION`: độ lớn bước + tốc độ nudge bằng ONVIF move.
-- Nếu hướng bấm bị ngược so với app camera: đặt `PTZ_INVERT_PAN=1` và/hoặc `PTZ_INVERT_TILT=1`.
-- Fallback cho Imou khi ONVIF PTZ không chạy: đặt `IMOU_PTZ_BASE_URL` (vd `http://192.168.1.50`), `IMOU_PTZ_USER`, `IMOU_PTZ_PASS`, `IMOU_PTZ_CHANNEL` (mặc định `0`).
 
 Hành vi:
-- Chỉ đổi state PTZ/OCR khi lệnh ONVIF thành công (tránh hiển thị “đã quay” nhưng camera không đổi góc).
 - Khi chuyển sang toàn cảnh, OCR tạm dừng.
 - Tự động quay về vị trí cổng sau `PTZ_AUTO_RETURN_SECONDS` giây.
 

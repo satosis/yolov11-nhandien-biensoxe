@@ -90,6 +90,7 @@ Tích hợp sẵn:
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
+  - `button.shed_ptz_up/down/left/right/stop`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)

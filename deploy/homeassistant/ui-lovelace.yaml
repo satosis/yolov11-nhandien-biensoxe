@@ -33,8 +33,18 @@ views:
       - type: grid
         title: Điều khiển hướng quay camera
         square: false
-        columns: 2
+        columns: 3
         cards:
+          - type: button
+            name: Lên
+            icon: mdi:arrow-up-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"0","duration":200}'
           - type: button
             name: Toàn cảnh
             icon: mdi:panorama
@@ -46,6 +56,26 @@ views:
                 topic: shed/cmd/ptz_panorama
                 payload: "1"
           - type: button
+            name: Dừng
+            icon: mdi:stop
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"8","duration":100}'
+          - type: button
+            name: Trái
+            icon: mdi:arrow-left-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"2","duration":200}'
+          - type: button
             name: Về vị trí mặc định
             icon: mdi:crosshairs-gps
             show_state: false
@@ -55,6 +85,26 @@ views:
               data:
                 topic: shed/cmd/ptz_gate
                 payload: "1"
+          - type: button
+            name: Phải
+            icon: mdi:arrow-right-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"3","duration":200}'
+          - type: button
+            name: Xuống
+            icon: mdi:arrow-down-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"1","duration":200}'
 
 
       - type: horizontal-stack

@@ -76,6 +76,15 @@ IMOU_OPEN_TIMEOUT = 20.0
 IMOU_OPEN_PANORAMA_OPERATION = ""
 IMOU_OPEN_GATE_OPERATION = ""
 IMOU_OPEN_MOVE_DURATION_MS = 1000
+IMOU_PTZ_ALIAS_TO_OPERATION = {
+    "up": "0",
+    "down": "1",
+    "left": "2",
+    "right": "3",
+    "zoom_in": "4",
+    "zoom_out": "5",
+    "stop": "8",
+}
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -529,6 +538,46 @@ def publish_discovery() -> None:
             "name": "PTZ Gate",
             "command_topic": "shed/cmd/ptz_gate",
             "unique_id": "shed_ptz_gate",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_left/config": {
+            "name": "PTZ Left",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "2",
+            "unique_id": "shed_ptz_left",
+            "icon": "mdi:arrow-left-bold",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_right/config": {
+            "name": "PTZ Right",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "3",
+            "unique_id": "shed_ptz_right",
+            "icon": "mdi:arrow-right-bold",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_up/config": {
+            "name": "PTZ Up",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "0",
+            "unique_id": "shed_ptz_up",
+            "icon": "mdi:arrow-up-bold",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_down/config": {
+            "name": "PTZ Down",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "1",
+            "unique_id": "shed_ptz_down",
+            "icon": "mdi:arrow-down-bold",
+            "device": device,
+        },
+        "homeassistant/button/shed_ptz_stop/config": {
+            "name": "PTZ Stop",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "8",
+            "unique_id": "shed_ptz_stop",
+            "icon": "mdi:stop",
             "device": device,
         },
         "homeassistant/switch/shed_ptz_mode/config": {
@@ -2158,6 +2207,7 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         else:
             operation = normalized
 
+        operation = IMOU_PTZ_ALIAS_TO_OPERATION.get(operation.lower(), operation)
         if not operation:
             logger.warning("Empty ptz_operation payload")
             return

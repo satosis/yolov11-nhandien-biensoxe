@@ -91,6 +91,7 @@ Tích hợp sẵn:
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
   - `button.shed_ptz_up/down/left/right/stop`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
+  - `sensor.shed_ptz_countdown_seconds`: đếm ngược (mặc định 300s) để camera tự về `gate` và bật lại OCR.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)

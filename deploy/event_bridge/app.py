@@ -107,6 +107,7 @@ STATE_TOPICS = {
     "ptz_mode": "shed/state/ptz_mode",
     "ocr_enabled": "shed/state/ocr_enabled",
     "last_view_utc": "shed/state/last_view_utc",
+    "ptz_countdown_seconds": "shed/state/ptz_countdown_seconds",
     "door": "shed/state/door",
 }
 
@@ -598,6 +599,14 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_mode",
             "device": device,
         },
+        "homeassistant/sensor/shed_ptz_countdown_seconds/config": {
+            "name": "PTZ OCR Countdown",
+            "state_topic": STATE_TOPICS["ptz_countdown_seconds"],
+            "unique_id": "shed_ptz_countdown_seconds",
+            "unit_of_measurement": "s",
+            "icon": "mdi:timer-outline",
+            "device": device,
+        },
         "homeassistant/binary_sensor/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
@@ -612,6 +621,25 @@ def publish_discovery() -> None:
         mqtt_publish(topic, json.dumps(payload, ensure_ascii=False), retain=True)
 
 
+def get_ptz_countdown_seconds(state: dict | None = None) -> int:
+    state = state or get_ptz_state()
+    if state.get("mode") != "panorama":
+        return 0
+
+    last_view = state.get("last_view_utc")
+    if not last_view:
+        return PTZ_AUTO_RETURN_SECONDS
+
+    try:
+        last_dt = datetime.fromisoformat(last_view)
+    except ValueError:
+        return PTZ_AUTO_RETURN_SECONDS
+
+    elapsed = max(0.0, (datetime.utcnow() - last_dt).total_seconds())
+    remaining = PTZ_AUTO_RETURN_SECONDS - int(elapsed)
+    return max(0, remaining)
+
+
 def publish_state() -> None:
     people_count, vehicle_count = get_counters()
     gate_closed, _, _ = get_gate_state()
@@ -623,6 +651,7 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
+    mqtt_publish(STATE_TOPICS["ptz_countdown_seconds"], str(get_ptz_countdown_seconds(ptz_state)))
     
     with door_state_lock:
         current_door_state = door_state
@@ -997,17 +1026,9 @@ def auto_return_loop() -> None:
     while True:
         try:
             state = get_ptz_state()
+            mqtt_publish(STATE_TOPICS["ptz_countdown_seconds"], str(get_ptz_countdown_seconds(state)))
             if state["mode"] == "panorama":
-                last_view = state.get("last_view_utc")
-                if last_view:
-                    try:
-                        last_dt = datetime.fromisoformat(last_view)
-                        idle_seconds = (datetime.utcnow() - last_dt).total_seconds()
-                    except ValueError:
-                        idle_seconds = PTZ_AUTO_RETURN_SECONDS
-                else:
-                    idle_seconds = PTZ_AUTO_RETURN_SECONDS
-
+                idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ptz_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
                     if ptz_goto_preset(ONVIF_PRESET_GATE):
                         prev_mode = state["mode"]
@@ -1025,7 +1046,7 @@ def auto_return_loop() -> None:
         except Exception as exc:
             logger.warning("Auto return loop error: %s", exc)
         finally:
-            threading.Event().wait(10)
+            threading.Event().wait(1)
 
 
 def get_counters() -> tuple[int, int]:

@@ -66,7 +66,7 @@ ONVIF_PRESET_UP = os.getenv("ONVIF_PRESET_UP", "")
 ONVIF_PRESET_DOWN = os.getenv("ONVIF_PRESET_DOWN", "")
 ONVIF_PRESET_LEFT = os.getenv("ONVIF_PRESET_LEFT", "")
 ONVIF_PRESET_RIGHT = os.getenv("ONVIF_PRESET_RIGHT", "")
-PTZ_MOVE_SPEED = float(os.getenv("PTZ_MOVE_SPEED", "0.5"))
+PTZ_MOVE_SPEED = 0.5
 PTZ_MOVE_DURATION = float(os.getenv("PTZ_MOVE_DURATION", "0.35"))
 PTZ_STEP_SIZE = float(os.getenv("PTZ_STEP_SIZE", "0.12"))
 PTZ_INVERT_PAN = os.getenv("PTZ_INVERT_PAN", "0").strip() == "1"
@@ -75,7 +75,7 @@ IMOU_PTZ_BASE_URL = os.getenv("IMOU_PTZ_BASE_URL", "").strip()
 IMOU_PTZ_USER = os.getenv("IMOU_PTZ_USER", "").strip()
 IMOU_PTZ_PASS = os.getenv("IMOU_PTZ_PASS", "").strip()
 IMOU_PTZ_CHANNEL = os.getenv("IMOU_PTZ_CHANNEL", "0").strip()
-IMOU_OPEN_API_BASE = os.getenv("IMOU_OPEN_API_BASE", "").strip()
+IMOU_OPEN_API_BASE = "https://openapi-sg.easy4ip.com/openapi"
 IMOU_OPEN_APP_ID = os.getenv("IMOU_OPEN_APP_ID", "").strip()
 IMOU_OPEN_APP_SECRET = os.getenv("IMOU_OPEN_APP_SECRET", "").strip()
 IMOU_OPEN_DEVICE_ID = os.getenv("IMOU_OPEN_DEVICE_ID", "").strip()

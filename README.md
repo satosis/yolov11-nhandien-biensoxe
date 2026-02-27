@@ -92,6 +92,7 @@ Tích hợp sẵn:
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
   - `button.shed_ptz_up/down/left/right`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
   - `switch.shed_ocr_enabled`: có thêm thuộc tính `countdown_minutes`/`countdown_seconds` để theo dõi thời gian tự bật lại OCR (mặc định 5 phút).
+  - OCR sẽ tự tắt khi Frigate phát hiện chuyển động (`person/car/truck/motorcycle/bicycle`) và tự bật lại sau 5 phút không có chuyển động mới.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)

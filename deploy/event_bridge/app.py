@@ -50,6 +50,7 @@ DEDUPE_SECONDS = 15
 MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
 PTZ_AUTO_RETURN_SECONDS = 300
+OCR_MOTION_TRIGGER_LABELS = {"person", "car", "truck", "motorcycle", "bicycle"}
 
 ONVIF_HOST = ""
 ONVIF_PORT = 80
@@ -1029,7 +1030,8 @@ def auto_return_loop() -> None:
             if state["mode"] == "panorama":
                 idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ptz_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
-                    if ptz_goto_preset(ONVIF_PRESET_GATE):
+                    moved = ptz_goto_preset(ONVIF_PRESET_GATE)
+                    if moved:
                         prev_mode = state["mode"]
                         set_ptz_state("gate", 1, "auto", None)
                         insert_ptz_event("auto_return", "no_heartbeat_5m", prev_mode, "gate")
@@ -1042,6 +1044,12 @@ def auto_return_loop() -> None:
                             "auto",
                             "auto_return_no_viewers",
                         )
+                    elif state["ocr_enabled"] == 0:
+                        set_ptz_state(state["mode"], 1, "auto", None)
+                        insert_ptz_event("auto_enable_ocr", "motion_timeout_5m", state["mode"], state["mode"])
+            elif state["ocr_enabled"] == 0 and countdown_seconds <= 0:
+                set_ptz_state(state["mode"], 1, "auto", None)
+                insert_ptz_event("auto_enable_ocr", "motion_timeout_5m", state["mode"], state["mode"])
         except Exception as exc:
             logger.warning("Auto return loop error: %s", exc)
         finally:
@@ -1550,6 +1558,36 @@ def handle_plate_workflow(payload: dict, event_id: int) -> None:
             f"Xe lạ phát hiện: {plate_norm}\n"
             f"Xác nhận:\n/mine {plate_norm}\n/staff {plate_norm}\n/reject {plate_norm}",
         )
+
+
+def is_motion_event(payload: dict) -> bool:
+    event_type = str(payload.get("type") or "").strip().lower()
+    if event_type != "new":
+        return False
+
+    label = normalize_object_label(payload.get("label"))
+    if label in OCR_MOTION_TRIGGER_LABELS:
+        return True
+
+    after = payload.get("after") or {}
+    if isinstance(after, dict):
+        after_label = normalize_object_label(after.get("label"))
+        if after_label in OCR_MOTION_TRIGGER_LABELS:
+            return True
+    return False
+
+
+def handle_ocr_motion_trigger(payload: dict) -> None:
+    if not is_motion_event(payload):
+        return
+
+    current = get_ptz_state()
+    now = utc_now()
+    if current.get("ocr_enabled", 1) == 1:
+        set_ptz_state(current["mode"], 0, "motion", now)
+        insert_ptz_event("auto_disable_ocr", "motion_detected", current["mode"], current["mode"])
+    else:
+        update_ptz_last_view("motion")
 
 
 def maybe_notify_telegram(payload: dict) -> None:
@@ -2273,6 +2311,7 @@ def on_mqtt_message(client, userdata, msg):
         return
 
     event_id = insert_event(payload)
+    handle_ocr_motion_trigger(payload)
     handle_plate_workflow(payload, event_id)
     handle_counting(payload)
     maybe_notify_telegram(payload)

@@ -604,9 +604,9 @@ def publish_discovery() -> None:
         mqtt_publish(legacy_topic, "", retain=True)
 
 
-def get_ptz_countdown_seconds(state: dict | None = None) -> int:
+def get_ocr_countdown_seconds(state: dict | None = None) -> int:
     state = state or get_ptz_state()
-    if state.get("mode") != "panorama":
+    if state.get("ocr_enabled", 1) == 1:
         return 0
 
     last_view = state.get("last_view_utc")
@@ -634,13 +634,14 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
-    countdown_seconds = get_ptz_countdown_seconds(ptz_state)
+    countdown_seconds = get_ocr_countdown_seconds(ptz_state)
     mqtt_publish(
         STATE_TOPICS["ocr_enabled_meta"],
         json.dumps(
             {
                 "countdown_minutes": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds // 60,
                 "countdown_seconds": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds,
+                "countdown_text": "" if ptz_state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
             }
         ),
     )
@@ -1018,18 +1019,19 @@ def auto_return_loop() -> None:
     while True:
         try:
             state = get_ptz_state()
-            countdown_seconds = get_ptz_countdown_seconds(state)
+            countdown_seconds = get_ocr_countdown_seconds(state)
             mqtt_publish(
                 STATE_TOPICS["ocr_enabled_meta"],
                 json.dumps(
                     {
                         "countdown_minutes": "" if state["ocr_enabled"] == 1 else countdown_seconds // 60,
                         "countdown_seconds": "" if state["ocr_enabled"] == 1 else countdown_seconds,
+                        "countdown_text": "" if state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
                     }
                 ),
             )
             if state["mode"] == "panorama":
-                idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ptz_countdown_seconds(state)
+                idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ocr_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
                     moved = ptz_goto_preset(ONVIF_PRESET_GATE)
                     if moved:

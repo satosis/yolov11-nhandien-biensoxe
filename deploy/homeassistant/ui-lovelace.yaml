@@ -40,6 +40,10 @@ views:
             entity: switch.shed_ocr_enabled
             attribute: countdown_minutes
             name: Đếm ngược bật OCR (phút)
+          - type: attribute
+            entity: switch.shed_ocr_enabled
+            attribute: countdown_text
+            name: Đếm ngược chi tiết
 
       - type: grid
         title: Điều khiển hướng quay camera

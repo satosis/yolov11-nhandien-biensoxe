@@ -1,4 +1,5 @@
 import json
+import hashlib
 import logging
 import os
 import re
@@ -74,6 +75,15 @@ IMOU_PTZ_BASE_URL = os.getenv("IMOU_PTZ_BASE_URL", "").strip()
 IMOU_PTZ_USER = os.getenv("IMOU_PTZ_USER", "").strip()
 IMOU_PTZ_PASS = os.getenv("IMOU_PTZ_PASS", "").strip()
 IMOU_PTZ_CHANNEL = os.getenv("IMOU_PTZ_CHANNEL", "0").strip()
+IMOU_OPEN_API_BASE = os.getenv("IMOU_OPEN_API_BASE", "").strip()
+IMOU_OPEN_APP_ID = os.getenv("IMOU_OPEN_APP_ID", "").strip()
+IMOU_OPEN_APP_SECRET = os.getenv("IMOU_OPEN_APP_SECRET", "").strip()
+IMOU_OPEN_DEVICE_ID = os.getenv("IMOU_OPEN_DEVICE_ID", "").strip()
+IMOU_OPEN_CHANNEL_ID = os.getenv("IMOU_OPEN_CHANNEL_ID", "0").strip()
+IMOU_OPEN_TIMEOUT = float(os.getenv("IMOU_OPEN_TIMEOUT", "20"))
+IMOU_OPEN_PANORAMA_OPERATION = os.getenv("IMOU_OPEN_PANORAMA_OPERATION", "").strip()
+IMOU_OPEN_GATE_OPERATION = os.getenv("IMOU_OPEN_GATE_OPERATION", "").strip()
+IMOU_OPEN_MOVE_DURATION_MS = int(os.getenv("IMOU_OPEN_MOVE_DURATION_MS", "1000"))
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -105,6 +115,7 @@ COMMAND_TOPICS = {
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/ptz_mode",
+    "shed/cmd/ptz_operation",
     "shed/cmd/view_heartbeat",
     "shed/cmd/door",
 }
@@ -125,6 +136,9 @@ mqtt_client: mqtt.Client | None = None
 
 ptz_presets_lock = threading.Lock()
 ptz_presets_cache: dict[str, str] = {}
+imou_open_token_lock = threading.Lock()
+imou_open_token: str | None = None
+imou_open_token_expiry = 0.0
 
 
 TELEGRAM_BOT_COMMANDS = [
@@ -746,6 +760,83 @@ def find_directional_preset_token(direction: str) -> str:
         with ptz_presets_lock:
             ptz_presets_cache[direction] = target_token
     return target_token
+
+
+def imou_open_enabled() -> bool:
+    return bool(IMOU_OPEN_API_BASE and IMOU_OPEN_APP_ID and IMOU_OPEN_APP_SECRET and IMOU_OPEN_DEVICE_ID)
+
+
+def imou_open_sign(ts: int, nonce: str) -> str:
+    raw = f"time:{ts},nonce:{nonce},appSecret:{IMOU_OPEN_APP_SECRET}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def imou_open_call(method: str, params: dict) -> dict | None:
+    if not imou_open_enabled():
+        return None
+    ts = int(time.time())
+    nonce = str(uuid.uuid4())
+    payload = {
+        "id": str(uuid.uuid4()),
+        "system": {
+            "ver": "1.0",
+            "appId": IMOU_OPEN_APP_ID,
+            "time": ts,
+            "nonce": nonce,
+            "sign": imou_open_sign(ts, nonce),
+        },
+        "params": params,
+    }
+    try:
+        response = requests.post(
+            f"{IMOU_OPEN_API_BASE.rstrip('/')}/{method}",
+            json=payload,
+            timeout=IMOU_OPEN_TIMEOUT,
+        )
+        response.raise_for_status()
+        doc = response.json()
+        if doc.get("result"):
+            return doc
+        logger.warning("Imou OpenAPI %s failed: %s", method, doc)
+        return None
+    except Exception as exc:
+        logger.warning("Imou OpenAPI request failed (%s): %s", method, exc)
+        return None
+
+
+def imou_open_get_token() -> str | None:
+    global imou_open_token, imou_open_token_expiry
+    if not imou_open_enabled():
+        return None
+
+    now = time.time()
+    with imou_open_token_lock:
+        if imou_open_token and now < imou_open_token_expiry - 60:
+            return imou_open_token
+
+    doc = imou_open_call("accessToken", {})
+    token = (((doc or {}).get("result") or {}).get("data") or {}).get("accessToken")
+    if not token:
+        return None
+
+    with imou_open_token_lock:
+        imou_open_token = token
+        imou_open_token_expiry = time.time() + 3 * 24 * 3600
+    return token
+
+
+def imou_open_control_move_ptz(operation: str, duration_ms: int) -> bool:
+    token = imou_open_get_token()
+    if not token:
+        return False
+    params = {
+        "token": token,
+        "deviceId": IMOU_OPEN_DEVICE_ID,
+        "channelId": IMOU_OPEN_CHANNEL_ID,
+        "operation": str(operation),
+        "duration": int(duration_ms),
+    }
+    return imou_open_call("controlMovePTZ", params) is not None
 
 
 def imou_ptz_move_direction(direction: str) -> bool:
@@ -2084,7 +2175,10 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         return
     if topic == "shed/cmd/ptz_panorama":
         prev_mode = get_ptz_state()["mode"]
-        if ptz_goto_preset(ONVIF_PRESET_PANORAMA):
+        moved = ptz_goto_preset(ONVIF_PRESET_PANORAMA)
+        if not moved and IMOU_OPEN_PANORAMA_OPERATION:
+            moved = imou_open_control_move_ptz(IMOU_OPEN_PANORAMA_OPERATION, IMOU_OPEN_MOVE_DURATION_MS)
+        if moved:
             set_ptz_state("panorama", 0, "ha", utc_now())
             insert_ptz_event("set_panorama", "manual", prev_mode, "panorama")
         else:
@@ -2092,7 +2186,10 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         return
     if topic == "shed/cmd/ptz_gate":
         prev_mode = get_ptz_state()["mode"]
-        if ptz_goto_preset(ONVIF_PRESET_GATE):
+        moved = ptz_goto_preset(ONVIF_PRESET_GATE)
+        if not moved and IMOU_OPEN_GATE_OPERATION:
+            moved = imou_open_control_move_ptz(IMOU_OPEN_GATE_OPERATION, IMOU_OPEN_MOVE_DURATION_MS)
+        if moved:
             set_ptz_state("gate", 1, "ha", None)
             insert_ptz_event("set_gate", "manual", prev_mode, "gate")
         else:
@@ -2106,6 +2203,32 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
             handle_mqtt_command("shed/cmd/ptz_gate", "1")
         else:
             logger.warning("Unknown PTZ mode payload: %s", payload)
+        return
+    if topic == "shed/cmd/ptz_operation":
+        operation = ""
+        duration_ms = IMOU_OPEN_MOVE_DURATION_MS
+        normalized = payload.strip()
+        if normalized.startswith("{"):
+            try:
+                data = json.loads(normalized)
+                operation = str(data.get("operation", "")).strip()
+                duration_ms = int(data.get("duration", duration_ms))
+            except Exception:
+                logger.warning("Invalid ptz_operation JSON payload: %s", payload)
+                return
+        else:
+            operation = normalized
+
+        if not operation:
+            logger.warning("Empty ptz_operation payload")
+            return
+
+        prev_mode = get_ptz_state()["mode"]
+        if imou_open_control_move_ptz(operation, duration_ms):
+            set_ptz_state("panorama", 0, "ha", utc_now())
+            insert_ptz_event(f"imou_op_{operation}", "manual", prev_mode, "panorama")
+        else:
+            insert_ptz_event(f"imou_op_{operation}_failed", "manual", prev_mode, prev_mode)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

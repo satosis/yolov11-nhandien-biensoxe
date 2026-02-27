@@ -36,10 +36,10 @@ views:
         entities:
           - entity: sensor.shed_ptz_mode
             name: Chế độ PTZ
-          - entity: binary_sensor.shed_ocr_enabled
-            name: OCR đang bật
+          - entity: switch.shed_ocr_enabled
+            name: OCR Enabled (bật/tắt)
           - type: attribute
-            entity: binary_sensor.shed_ocr_enabled
+            entity: switch.shed_ocr_enabled
             attribute: countdown_minutes
             name: Đếm ngược bật OCR (phút)
 

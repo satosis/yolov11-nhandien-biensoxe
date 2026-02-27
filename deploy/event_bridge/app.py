@@ -119,6 +119,7 @@ COMMAND_TOPICS = {
     "shed/cmd/ptz_mode",
     "shed/cmd/ptz_operation",
     "shed/cmd/view_heartbeat",
+    "shed/cmd/ocr_enabled",
     "shed/cmd/door",
 }
 
@@ -599,13 +600,17 @@ def publish_discovery() -> None:
             "unique_id": "shed_ptz_mode",
             "device": device,
         },
-        "homeassistant/binary_sensor/shed_ocr_enabled/config": {
+        "homeassistant/switch/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
+            "command_topic": "shed/cmd/ocr_enabled",
             "payload_on": "1",
             "payload_off": "0",
+            "state_on": "1",
+            "state_off": "0",
             "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
-            "unique_id": "shed_ocr_enabled",
+            "unique_id": "shed_ocr_enabled_switch",
+            "icon": "mdi:text-recognition",
             "device": device,
         },
     }
@@ -645,7 +650,15 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
     countdown_seconds = get_ptz_countdown_seconds(ptz_state)
-    mqtt_publish(STATE_TOPICS["ocr_enabled_meta"], json.dumps({"countdown_minutes": countdown_seconds // 60, "countdown_seconds": countdown_seconds}))
+    mqtt_publish(
+        STATE_TOPICS["ocr_enabled_meta"],
+        json.dumps(
+            {
+                "countdown_minutes": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds // 60,
+                "countdown_seconds": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds,
+            }
+        ),
+    )
     
     with door_state_lock:
         current_door_state = door_state
@@ -1021,7 +1034,15 @@ def auto_return_loop() -> None:
         try:
             state = get_ptz_state()
             countdown_seconds = get_ptz_countdown_seconds(state)
-            mqtt_publish(STATE_TOPICS["ocr_enabled_meta"], json.dumps({"countdown_minutes": countdown_seconds // 60, "countdown_seconds": countdown_seconds}))
+            mqtt_publish(
+                STATE_TOPICS["ocr_enabled_meta"],
+                json.dumps(
+                    {
+                        "countdown_minutes": "" if state["ocr_enabled"] == 1 else countdown_seconds // 60,
+                        "countdown_seconds": "" if state["ocr_enabled"] == 1 else countdown_seconds,
+                    }
+                ),
+            )
             if state["mode"] == "panorama":
                 idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ptz_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
@@ -2234,6 +2255,19 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
             insert_ptz_event(f"imou_op_{operation}", "manual", prev_mode, "panorama")
         else:
             insert_ptz_event(f"imou_op_{operation}_failed", "manual", prev_mode, prev_mode)
+        return
+    if topic == "shed/cmd/ocr_enabled":
+        normalized = payload.strip().lower()
+        if normalized in {"1", "on", "true"}:
+            current = get_ptz_state()
+            set_ptz_state(current["mode"], 1, "ha", current.get("last_view_utc"))
+            insert_ptz_event("set_ocr_enabled", "manual", current["mode"], current["mode"])
+        elif normalized in {"0", "off", "false"}:
+            current = get_ptz_state()
+            set_ptz_state(current["mode"], 0, "ha", utc_now())
+            insert_ptz_event("set_ocr_disabled", "manual", current["mode"], current["mode"])
+        else:
+            logger.warning("Unknown OCR enabled payload: %s", payload)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")

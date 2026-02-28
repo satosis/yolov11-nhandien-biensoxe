@@ -644,7 +644,7 @@ def publish_state() -> None:
             {
                 "countdown_minutes": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds // 60,
                 "countdown_seconds": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds,
-                "countdown_text": "" if ptz_state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
+                "countdown_text": "Bật" if ptz_state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
             }
         ),
     )
@@ -1029,7 +1029,7 @@ def auto_return_loop() -> None:
                     {
                         "countdown_minutes": "" if state["ocr_enabled"] == 1 else countdown_seconds // 60,
                         "countdown_seconds": "" if state["ocr_enabled"] == 1 else countdown_seconds,
-                        "countdown_text": "" if state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
+                        "countdown_text": "Bật" if state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
                     }
                 ),
             )

@@ -136,8 +136,7 @@ views:
 
       - type: picture-elements
         title: "Imou 2k (vạch đỏ ngang cửa cuốn)"
-        camera_image: camera.shed_ai_overlay
-        camera_view: live
+        image: /api/camera_proxy/camera.shed_ai_overlay
         elements:
           - type: state-label
             entity: sensor.shed_people_count

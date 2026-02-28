@@ -1,7 +1,7 @@
 go2rtc:
   streams:
     imou_2k_overlay:
-      - "ffmpeg:rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0#video=h264#drawbox=x=0:y=400:w=iw:h=4:color=red@0.9:t=fill"
+      - 'exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i "rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0" -vf "drawbox=x=0:y=400:w=iw:h=4:color=red@0.9:t=fill" -c:v libx264 -preset ultrafast -tune zerolatency -an -rtsp_transport tcp -f rtsp {output}'
 
 mqtt:
   host: mosquitto

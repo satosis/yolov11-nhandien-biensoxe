@@ -148,11 +148,30 @@ views:
               height: 6px
               background: red
               color: transparent
-              opacity: 0.85
+              font-size: 1px
+              line-height: 1px
+              opacity: 0.95
               transform: translate(-50%, -50%)
+              z-index: 10
+          - type: state-label
+            entity: sensor.shed_people_count
+            style:
+              left: 50%
+              top: 62%
+              width: 100%
+              height: 30px
+              background: rgba(255, 0, 0, 0.18)
+              border-top: 2px solid rgba(255, 0, 0, 0.95)
+              border-bottom: 2px solid rgba(255, 0, 0, 0.6)
+              color: transparent
+              font-size: 1px
+              line-height: 1px
+              transform: translate(-50%, -50%)
+              z-index: 9
 
       - type: markdown
         title: Lưu ý camera
         content: |
-          - Vạch đỏ được vẽ trực tiếp trên Home Assistant bằng card **picture-elements**.
+          - Vạch đỏ + zone mỏng được vẽ trực tiếp trên Home Assistant bằng card **picture-elements**.
           - Chỉnh vị trí bằng `top` (hiện là `62%`) để khớp đúng ngang cửa cuốn.
+          - Chỉnh độ dày zone bằng `height` (hiện là `30px`).

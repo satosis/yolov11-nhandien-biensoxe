@@ -88,7 +88,7 @@ Tích hợp sẵn:
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
-- Dashboard Home Assistant đã vẽ vạch đỏ ngang cửa cuốn bằng card `picture-elements` (trên `camera.shed_ai_overlay`); có thể chỉnh nhanh vị trí bằng `top` trong `deploy/homeassistant/ui-lovelace.yaml`.
+- Dashboard Home Assistant đã vẽ **vạch đỏ + zone mỏng** ngang cửa cuốn bằng card `picture-elements` (trên `camera.shed_ai_overlay`); có thể chỉnh nhanh vị trí bằng `top` và độ dày zone bằng `height` trong `deploy/homeassistant/ui-lovelace.yaml`.
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
   - `button.shed_ptz_up/down/left/right`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).

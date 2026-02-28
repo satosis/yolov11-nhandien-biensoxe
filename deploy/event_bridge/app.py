@@ -514,26 +514,7 @@ def publish_discovery() -> None:
             "unique_id": "shed_vehicle_count",
             "device": device,
         },
-        "homeassistant/binary_sensor/shed_gate_closed/config": {
-            "name": "Shed Gate Closed",
-            "state_topic": STATE_TOPICS["gate_closed"],
-            "payload_on": "1",
-            "payload_off": "0",
-            "unique_id": "shed_gate_closed",
-            "device": device,
-        },
-        "homeassistant/button/shed_gate_open/config": {
-            "name": "Shed Gate Open",
-            "command_topic": "shed/cmd/gate_open",
-            "unique_id": "shed_gate_open",
-            "device": device,
-        },
-        "homeassistant/button/shed_gate_closed/config": {
-            "name": "Shed Gate Closed",
-            "command_topic": "shed/cmd/gate_closed",
-            "unique_id": "shed_gate_closed",
-            "device": device,
-        },
+
         "homeassistant/button/shed_ptz_up/config": {
             "name": "PTZ Move Up",
             "command_topic": "shed/cmd/ptz_operation",
@@ -617,6 +598,9 @@ def publish_discovery() -> None:
 
     # Remove deprecated discovery entities from Home Assistant.
     for legacy_topic in (
+        "homeassistant/binary_sensor/shed_gate_closed/config",
+        "homeassistant/button/shed_gate_open/config",
+        "homeassistant/button/shed_gate_closed/config",
         "homeassistant/switch/shed_ptz_mode/config",
         "homeassistant/sensor/shed_ptz_mode/config",
         "homeassistant/binary_sensor/shed_ocr_enabled/config",

@@ -93,6 +93,24 @@ services:
     networks:
       - surv-net
 
+  ai_core:
+    build: .
+    container_name: ai_core
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    env_file:
+      - ./.env
+      - ./.camera.env
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    ports:
+      - "8080:8000"
+    volumes:
+      - .:/app
+    networks:
+      - surv-net
+
 networks:
   surv-net:
     driver: bridge

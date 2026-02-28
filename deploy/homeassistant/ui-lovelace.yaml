@@ -159,39 +159,10 @@ views:
               action: url
               url_path: http://127.0.0.1:5000/review
 
-      - type: picture-elements
-        title: "Imou 2k (vạch đỏ ngang cửa cuốn)"
-        image: /api/camera_proxy/camera.shed_ai_overlay
-        elements:
-          - type: state-label
-            entity: sensor.shed_people_count
-            style:
-              left: 50%
-              top: 62%
-              width: 100%
-              height: 6px
-              background: red
-              color: transparent
-              font-size: 1px
-              line-height: 1px
-              opacity: 0.95
-              transform: translate(-50%, -50%)
-              z-index: 10
-          - type: state-label
-            entity: sensor.shed_people_count
-            style:
-              left: 50%
-              top: 62%
-              width: 100%
-              height: 30px
-              background: rgba(255, 0, 0, 0.18)
-              border-top: 2px solid rgba(255, 0, 0, 0.95)
-              border-bottom: 2px solid rgba(255, 0, 0, 0.6)
-              color: transparent
-              font-size: 1px
-              line-height: 1px
-              transform: translate(-50%, -50%)
-              z-index: 9
+      - type: picture-entity
+        title: "AI Camera (Nhận diện & Vạch đỏ gốc)"
+        entity: camera.10_115_215_64  # User's camera entity they just added
+        camera_view: live
 
       - type: markdown
         title: Lưu ý camera

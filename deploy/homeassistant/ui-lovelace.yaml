@@ -30,14 +30,20 @@ views:
           - Nhãn vùng nhận diện: **Người = vàng**, **Xe = xanh**.
           - Nút nhận diện nâng cao làm trên Telegram, không thao tác trên HA.
 
-      - type: tile
-        entity: switch.shed_ocr_enabled
-        name: OCR Enabled
-        tap_action:
-          action: toggle
-        state_content:
-          - countdown_text
-          - state
+      - type: horizontal-stack
+        cards:
+          - type: tile
+            entity: switch.shed_ocr_enabled
+            name: OCR Enabled
+            tap_action:
+              action: toggle
+            state_content:
+              - state
+          - type: tile
+            entity: sensor.shed_ocr_countdown
+            name: OCR Countdown
+            state_content:
+              - state
 
       - type: entities
         title: OCR tự bật lại sau khi quay tay

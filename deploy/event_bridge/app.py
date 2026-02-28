@@ -589,6 +589,15 @@ def publish_discovery() -> None:
             "icon": "mdi:text-recognition",
             "device": device,
         },
+        "homeassistant/sensor/shed_ocr_countdown/config": {
+            "name": "OCR Countdown",
+            "state_topic": STATE_TOPICS["ocr_enabled_meta"],
+            "value_template": "{{ value_json.countdown_text if value_json.countdown_text else '-' }}",
+            "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
+            "unique_id": "shed_ocr_countdown",
+            "icon": "mdi:timer-outline",
+            "device": device,
+        },
     }
 
     for topic, payload in discovery_payloads.items():
@@ -601,6 +610,7 @@ def publish_discovery() -> None:
         "homeassistant/binary_sensor/shed_ocr_enabled/config",
         "homeassistant/sensor/shed_ocr_enabled/config",
         "homeassistant/switch/shed_ocr_control/config",
+        "homeassistant/sensor/shed_ocr_control/config",
         "homeassistant/sensor/shed_ptz_countdown_seconds/config",
         "homeassistant/button/shed_ptz_stop/config",
     ):

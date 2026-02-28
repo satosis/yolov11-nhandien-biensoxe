@@ -34,7 +34,8 @@ views:
         cards:
           - type: conditional
             conditions:
-              - entity: switch.shed_ocr_enabled
+              - condition: state
+                entity: switch.shed_ocr_enabled
                 state: "on"
             card:
               type: tile
@@ -46,8 +47,30 @@ views:
                 - state
           - type: conditional
             conditions:
-              - entity: switch.shed_ocr_enabled
+              - condition: state
+                entity: switch.shed_ocr_enabled
                 state: "off"
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                attribute: countdown_text
+                state: ""
+            card:
+              type: tile
+              entity: switch.shed_ocr_enabled
+              name: OCR Enabled
+              tap_action:
+                action: toggle
+              state_content:
+                - state
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                state: "off"
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                attribute: countdown_text
+                state_not: ""
             card:
               type: tile
               entity: switch.shed_ocr_enabled

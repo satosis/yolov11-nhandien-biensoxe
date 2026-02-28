@@ -548,12 +548,7 @@ def publish_discovery() -> None:
             "device": device,
         },
 
-        "homeassistant/button/shed_ptz_gate/config": {
-            "name": "PTZ Preset Gate",
-            "command_topic": "shed/cmd/ptz_gate",
-            "unique_id": "shed_ptz_gate",
-            "device": device,
-        },
+
         "homeassistant/switch/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
@@ -594,6 +589,7 @@ def publish_discovery() -> None:
     # Remove deprecated discovery entities from Home Assistant.
     for legacy_topic in (
         "homeassistant/button/shed_ptz_panorama/config",
+        "homeassistant/button/shed_ptz_gate/config",
         "homeassistant/binary_sensor/shed_gate_closed/config",
         "homeassistant/button/shed_gate_open/config",
         "homeassistant/button/shed_gate_closed/config",

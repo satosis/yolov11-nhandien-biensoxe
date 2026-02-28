@@ -46,8 +46,11 @@ views:
                 - state
           - type: conditional
             conditions:
-              - entity: switch.shed_ocr_enabled
+              - condition: state
+                entity: switch.shed_ocr_enabled
                 state: "off"
+              - condition: template
+                value_template: "{{ state_attr('switch.shed_ocr_enabled', 'countdown_text') not in [none, ''] }}"
             card:
               type: tile
               entity: switch.shed_ocr_enabled
@@ -56,6 +59,21 @@ views:
                 action: toggle
               state_content:
                 - countdown_text
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                state: "off"
+              - condition: template
+                value_template: "{{ state_attr('switch.shed_ocr_enabled', 'countdown_text') in [none, ''] }}"
+            card:
+              type: tile
+              entity: switch.shed_ocr_enabled
+              name: OCR Enabled
+              tap_action:
+                action: toggle
+              state_content:
+                - state
 
       - type: entities
         title: OCR tự bật lại sau khi quay tay

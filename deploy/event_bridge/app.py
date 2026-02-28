@@ -110,6 +110,7 @@ STATE_TOPICS = {
     "ocr_enabled": "shed/state/ocr_enabled",
     "last_view_utc": "shed/state/last_view_utc",
     "ocr_enabled_meta": "shed/state/ocr_enabled_meta",
+    "ocr_countdown_display": "shed/state/ocr_countdown_display",
     "door": "shed/state/door",
 }
 
@@ -589,6 +590,13 @@ def publish_discovery() -> None:
             "icon": "mdi:text-recognition",
             "device": device,
         },
+        "homeassistant/sensor/shed_ocr_countdown_display/config": {
+            "name": "OCR Countdown Display",
+            "state_topic": STATE_TOPICS["ocr_countdown_display"],
+            "unique_id": "shed_ocr_countdown_display",
+            "icon": "mdi:timer-outline",
+            "device": device,
+        },
     }
 
     for topic, payload in discovery_payloads.items():
@@ -640,15 +648,23 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
     countdown_seconds = get_ocr_countdown_seconds(ptz_state)
+    countdown_text = (
+        "" if ptz_state["ocr_enabled"] == 1
+        else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s"
+    )
     mqtt_publish(
         STATE_TOPICS["ocr_enabled_meta"],
         json.dumps(
             {
                 "countdown_minutes": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds // 60,
                 "countdown_seconds": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds,
-                "countdown_text": "" if ptz_state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
+                "countdown_text": countdown_text,
             }
         ),
+    )
+    mqtt_publish(
+        STATE_TOPICS["ocr_countdown_display"],
+        countdown_text if ptz_state["ocr_enabled"] == 0 and countdown_text else "",
     )
     
     with door_state_lock:

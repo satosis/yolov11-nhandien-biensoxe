@@ -50,35 +50,16 @@ views:
               - condition: state
                 entity: switch.shed_ocr_enabled
                 state: "off"
-              - condition: state
-                entity: switch.shed_ocr_enabled
-                attribute: countdown_text
-                state: ""
             card:
               type: tile
-              entity: switch.shed_ocr_enabled
+              entity: sensor.shed_ocr_countdown_display
               name: OCR Enabled
               tap_action:
                 action: toggle
+                toggle:
+                  entity: switch.shed_ocr_enabled
               state_content:
                 - state
-          - type: conditional
-            conditions:
-              - condition: state
-                entity: switch.shed_ocr_enabled
-                state: "off"
-              - condition: state
-                entity: switch.shed_ocr_enabled
-                attribute: countdown_text
-                state_not: ""
-            card:
-              type: tile
-              entity: switch.shed_ocr_enabled
-              name: OCR Enabled
-              tap_action:
-                action: toggle
-              state_content:
-                - countdown_text
 
       - type: entities
         title: OCR tự bật lại sau khi quay tay

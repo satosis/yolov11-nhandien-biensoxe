@@ -60,6 +60,9 @@ views:
                   entity: switch.shed_ocr_enabled
               state_content:
                 - state
+          - type: tile
+            entity: switch.shed_gate
+            name: Cổng
 
       - type: entities
         title: OCR tự bật lại sau khi quay tay

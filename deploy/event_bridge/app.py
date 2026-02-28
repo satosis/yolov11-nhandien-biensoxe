@@ -117,6 +117,7 @@ STATE_TOPICS = {
 COMMAND_TOPICS = {
     "shed/cmd/gate_open",
     "shed/cmd/gate_closed",
+    "shed/cmd/gate_toggle",
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/ptz_mode",
@@ -588,6 +589,18 @@ def publish_discovery() -> None:
             "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
             "unique_id": "shed_ocr_enabled",
             "icon": "mdi:text-recognition",
+            "device": device,
+        },
+        "homeassistant/switch/shed_gate/config": {
+            "name": "Cổng",
+            "state_topic": STATE_TOPICS["gate_closed"],
+            "command_topic": "shed/cmd/gate_toggle",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "state_on": "0",
+            "state_off": "1",
+            "unique_id": "shed_gate",
+            "icon": "mdi:gate",
             "device": device,
         },
         "homeassistant/sensor/shed_ocr_countdown_display/config": {
@@ -2242,6 +2255,15 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         return
     if topic == "shed/cmd/gate_closed":
         set_gate_state(1, "ha")
+        return
+    if topic == "shed/cmd/gate_toggle":
+        normalized = payload.strip().upper()
+        if normalized == "ON":
+            set_gate_state(0, "ha")  # ON = cổng MỞ = gate_closed=0
+        elif normalized == "OFF":
+            set_gate_state(1, "ha")  # OFF = cổng ĐÓNG = gate_closed=1
+        else:
+            logger.warning("Unknown gate_toggle payload: %s", payload)
         return
     if topic == "shed/cmd/door":
         control_door(payload)

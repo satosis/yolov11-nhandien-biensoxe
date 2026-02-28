@@ -32,8 +32,8 @@ mqtt:
 camera:
   - platform: generic
     name: "Shed AI Overlay"
-    still_image_url: "http://127.0.0.1:5000/api/preview/imou_2k/latest.jpg"
-    stream_source: "rtsp://127.0.0.1:8554/imou_2k_overlay"
+    still_image_url: "http://127.0.0.1:5000/api/imou_2k/latest.jpg"
+    stream_source: "http://127.0.0.1:5000/api/imou_2k_overlay/flv"
     verify_ssl: false
 
 lovelace:

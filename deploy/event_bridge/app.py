@@ -547,12 +547,7 @@ def publish_discovery() -> None:
             "icon": "mdi:arrow-right-bold",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_panorama/config": {
-            "name": "PTZ Preset Panorama",
-            "command_topic": "shed/cmd/ptz_panorama",
-            "unique_id": "shed_ptz_panorama",
-            "device": device,
-        },
+
         "homeassistant/button/shed_ptz_gate/config": {
             "name": "PTZ Preset Gate",
             "command_topic": "shed/cmd/ptz_gate",
@@ -598,6 +593,7 @@ def publish_discovery() -> None:
 
     # Remove deprecated discovery entities from Home Assistant.
     for legacy_topic in (
+        "homeassistant/button/shed_ptz_panorama/config",
         "homeassistant/binary_sensor/shed_gate_closed/config",
         "homeassistant/button/shed_gate_open/config",
         "homeassistant/button/shed_gate_closed/config",

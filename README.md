@@ -88,13 +88,8 @@ Tích hợp sẵn:
   - `sensor.shed_vehicle_count`: Đếm xe.
   - `cover.garage_door`: Điều khiển cửa cuốn.
 - Trên HA chỉ giữ các nút điều khiển camera + xem lịch sử (Frigate).
-- Dashboard Home Assistant đã vẽ **vạch đỏ + zone mỏng** ngang cửa cuốn bằng card `picture-elements` (trên `camera.shed_ai_overlay`); có thể chỉnh nhanh vị trí bằng `top` và độ dày zone bằng `height` trong `deploy/homeassistant/ui-lovelace.yaml`.
   - `button.shed_ptz_panorama`: xoay camera sang toàn cảnh.
   - `button.shed_ptz_gate`: đưa camera về vị trí mặc định.
-  - `button.shed_ptz_up/down/left/right`: điều khiển PTZ theo bước nhỏ qua Imou OpenAPI (`shed/cmd/ptz_operation`).
-  - `switch.shed_ocr_enabled`: giữ nút bật/tắt OCR thủ công, đồng thời có thuộc tính countdown (`countdown_text`, `countdown_minutes`, `countdown_seconds`).
-  - Dashboard đã dùng tile card để hiển thị trực tiếp `countdown_text` ngay trên nút OCR (thay vì chỉ hiện chữ Tắt).
-  - OCR sẽ tự tắt khi Frigate phát hiện chuyển động (`person/car/truck/motorcycle/bicycle`) và tự bật lại sau 5 phút không có chuyển động mới.
   - Nút lịch sử: mở `Frigate NVR` và `Frigate Events`.
 
 ### Tự động hóa (Automation)
@@ -168,8 +163,7 @@ Hành vi:
 ```
 
 ## Xử lý sự cố (Troubleshooting)
-- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` đang cấu hình chỉ **tính lúc người đi vào trong qua vạch đỏ** (không giảm khi người đi ra).
-  - Đã tối ưu profile mặc định theo hướng cân bằng đúng/sai: detect stream dùng `subtype=0` (1280x720@8fps), `person.threshold=0.66`, `person.min_score=0.50`, `person.min_area=1400`, `person.min_ratio=0.30`, `person.max_ratio=1.20` để giảm false-positive kiểu quần áo/vật thể. Nếu CPU yếu thì giảm về 960x540 hoặc fps=5.
+- **Không nhận diện được người / `Person count = 0`**: kiểm tra camera `imou_2k` trong Frigate có đang track `person` (`deploy/frigate/config.yml`), và lưu ý sensor `Shed People Count` chỉ tăng/giảm khi object **đi qua vạch ảo trái/phải** (không phải cứ xuất hiện trong khung hình là tăng).
 - **Cần test độc lập bằng webcam máy tính**: chạy `./cmd webcam-people --camera 0 --model models/yolo26n.pt` để kiểm tra model có nhận diện `person` ngoài pipeline RTSP/Frigate hay không.
 - **Dùng Tailscale nhưng không truy cập được HA**: kiểm tra `tailscale status`, xác nhận node online trong tailnet, và đặt lại `HA_EXTERNAL_URL` theo MagicDNS `http://<TS_HOSTNAME>.<tailnet>.ts.net:8123`.
 - **Không truy cập được HA từ mạng khác**: chạy `./cmd remote-check` để kiểm tra nhanh `.env` (`HA_INTERNAL_URL`, `HA_EXTERNAL_URL`, `TS_AUTHKEY`) và trạng thái cổng local 8123 trước khi debug tiếp.

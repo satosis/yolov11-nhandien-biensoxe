@@ -42,7 +42,9 @@ GENERAL_MODEL_PATH = "./models/bien_so_xe.pt"
 DOOR_MODEL_PATH = "./models/door_model.pt"
 
 # --- Detection ---
-LINE_Y = 300
+# Ưu tiên LINE_Y_PIXELS nếu được set; nếu không sẽ dùng LINE_Y_RATIO * chiều cao frame.
+LINE_Y_RATIO = float(os.getenv("LINE_Y_RATIO", "0.62"))
+LINE_Y_PIXELS = int(os.getenv("LINE_Y_PIXELS", "0"))
 CAMERA_IP = os.getenv("CAMERA_IP", "")
 _RTSP_URL_RAW = os.getenv("RTSP_URL", "")
 

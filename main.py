@@ -12,7 +12,7 @@ from ultralytics import YOLO
 
 # --- Core ---
 from core.config import (
-    GENERAL_MODEL_PATH, PLATE_MODEL_PATH, LINE_Y, RTSP_URL, OCR_SOURCE,
+    GENERAL_MODEL_PATH, PLATE_MODEL_PATH, LINE_Y_PIXELS, LINE_Y_RATIO, RTSP_URL, OCR_SOURCE,
     SIGNAL_LOSS_TIMEOUT, DOOR_ROI, FACE_RECOGNITION_AVAILABLE,
     authorized_plates, normalize_plate, DB_PATH,
     CAMERA_SHIFT_CHECK_EVERY_FRAMES,
@@ -141,6 +141,14 @@ def resize_for_process(frame, target_width):
     return cv2.resize(frame, (target_width, new_h), interpolation=cv2.INTER_AREA)
 
 
+def resolve_line_y(frame_height: int) -> int:
+    """Tính vị trí vạch đỏ theo pixel override hoặc theo % chiều cao frame."""
+    if LINE_Y_PIXELS > 0:
+        return max(0, min(frame_height - 1, LINE_Y_PIXELS))
+    ratio = max(0.0, min(1.0, LINE_Y_RATIO))
+    return max(0, min(frame_height - 1, int(frame_height * ratio)))
+
+
 def parse_ocr_source(source):
     normalized = source.lower()
     if normalized.startswith("image:") or normalized.startswith("image="):
@@ -216,6 +224,7 @@ while True:
     frame_count += 1
 
     frame = resize_for_process(frame, PROCESS_WIDTH)
+    line_y = resolve_line_y(frame.shape[0])
 
     # 0. Giám sát camera có lệch khỏi góc ban đầu hay không
     if not camera_baseline_ready:
@@ -261,7 +270,7 @@ while True:
             if obj_id is not None and obj_id in tracked_ids:
                 prev_y = tracked_ids[obj_id]
 
-                if prev_y < LINE_Y and center_y >= LINE_Y:
+                if prev_y < line_y and center_y >= line_y:
                     event_msg = ""
                     crossed_red_line = True
                     if is_vehicle:
@@ -275,7 +284,7 @@ while True:
                         db.log_event("IN", event_msg, truck_count, person_count)
                         notify_telegram(event_msg)
 
-                elif prev_y >= LINE_Y and center_y < LINE_Y:
+                elif prev_y >= line_y and center_y < line_y:
                     event_msg = ""
                     crossed_red_line = True
                     if is_vehicle:
@@ -415,7 +424,7 @@ while True:
 
     # GUI
     door_status = "🔓 MỞ" if door_open else "🔒 ĐÓNG"
-    cv2.line(frame, (0, LINE_Y), (frame.shape[1], LINE_Y), (0, 0, 255), 5)
+    cv2.line(frame, (0, line_y), (frame.shape[1], line_y), (0, 0, 255), 5)
     cv2.putText(frame, f"Qua vach do - Xe: {truck_count} | Nguoi: {person_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 255), 2)
     cv2.putText(frame, f"Cua: {door_status}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
     

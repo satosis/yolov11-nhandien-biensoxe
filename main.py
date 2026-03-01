@@ -283,8 +283,7 @@ while True:
                         person_count = max(0, person_count - 1)
                         event_msg = f"Xe {obj_id} đi ra. Tự động trừ 1 người."
                     elif is_person:
-                        person_count = max(0, person_count - 1)
-                        event_msg = f"Người {obj_id} đi ra."
+                        event_msg = f"Người {obj_id} đi ra (không tính giảm, chỉ tính lúc đi vào qua vạch đỏ)."
 
                     if event_msg:
                         db.log_event("OUT", event_msg, truck_count, person_count)

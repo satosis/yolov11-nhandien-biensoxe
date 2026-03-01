@@ -30,11 +30,68 @@ views:
           - Nhãn vùng nhận diện: **Người = vàng**, **Xe = xanh**.
           - Nút nhận diện nâng cao làm trên Telegram, không thao tác trên HA.
 
+      - type: horizontal-stack
+        cards:
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                state: "on"
+            card:
+              type: tile
+              entity: switch.shed_ocr_enabled
+              name: OCR Enabled
+              tap_action:
+                action: toggle
+              state_content:
+                - state
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: switch.shed_ocr_enabled
+                state: "off"
+            card:
+              type: tile
+              entity: sensor.shed_ocr_countdown_display
+              name: OCR Enabled
+              tap_action:
+                action: toggle
+                toggle:
+                  entity: switch.shed_ocr_enabled
+              state_content:
+                - state
+          - type: tile
+            entity: switch.shed_gate
+            name: Cổng
+
+      - type: entities
+        title: OCR tự bật lại sau khi quay tay
+        show_header_toggle: false
+        entities:
+          - type: attribute
+            entity: switch.shed_ocr_enabled
+            attribute: countdown_minutes
+            name: Đếm ngược bật OCR (phút)
+          - type: attribute
+            entity: switch.shed_ocr_enabled
+            attribute: countdown_text
+            name: Đếm ngược chi tiết
+
       - type: grid
         title: Điều khiển hướng quay camera
         square: false
-        columns: 2
+        columns: 3
         cards:
+          - type: button
+            name: Lên
+            icon: mdi:arrow-up-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"0","duration":200}'
           - type: button
             name: Toàn cảnh
             icon: mdi:panorama
@@ -46,6 +103,16 @@ views:
                 topic: shed/cmd/ptz_panorama
                 payload: "1"
           - type: button
+            name: Trái
+            icon: mdi:arrow-left-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"2","duration":200}'
+          - type: button
             name: Về vị trí mặc định
             icon: mdi:crosshairs-gps
             show_state: false
@@ -55,6 +122,26 @@ views:
               data:
                 topic: shed/cmd/ptz_gate
                 payload: "1"
+          - type: button
+            name: Phải
+            icon: mdi:arrow-right-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"3","duration":200}'
+          - type: button
+            name: Xuống
+            icon: mdi:arrow-down-bold
+            show_state: false
+            tap_action:
+              action: call-service
+              service: mqtt.publish
+              data:
+                topic: shed/cmd/ptz_operation
+                payload: '{"operation":"1","duration":200}'
 
 
       - type: horizontal-stack
@@ -73,11 +160,13 @@ views:
               url_path: http://127.0.0.1:5000/review
 
       - type: picture-entity
-        title: "Camera HA trực tiếp (AI Overlay: vạch đỏ + khoanh vùng)"
-        entity: camera.shed_ai_overlay
+        title: "AI Camera (Nhận diện & Vạch đỏ gốc)"
+        entity: camera.10_115_215_64  # User's camera entity they just added
         camera_view: live
 
-      - type: picture-entity
-        title: Camera Frigate gốc (không overlay)
-        entity: camera.frigate_cam1
-        camera_view: live
+      - type: markdown
+        title: Lưu ý camera
+        content: |
+          - Vạch đỏ + zone mỏng được vẽ trực tiếp trên Home Assistant bằng card **picture-elements**.
+          - Chỉnh vị trí bằng `top` (hiện là `62%`) để khớp đúng ngang cửa cuốn.
+          - Chỉnh độ dày zone bằng `height` (hiện là `30px`).

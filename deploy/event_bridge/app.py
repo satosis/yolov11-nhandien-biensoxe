@@ -50,6 +50,8 @@ DEDUPE_SECONDS = 15
 MATCH_VEHICLE_REENTRY_SECONDS = 86400
 
 PTZ_AUTO_RETURN_SECONDS = 300
+COUNT_PERSON_ONLY_IN = True
+OCR_MOTION_TRIGGER_LABELS = {"person", "car", "truck", "motorcycle", "bicycle"}
 
 ONVIF_HOST = ""
 ONVIF_PORT = 80
@@ -76,6 +78,15 @@ IMOU_OPEN_TIMEOUT = 20.0
 IMOU_OPEN_PANORAMA_OPERATION = ""
 IMOU_OPEN_GATE_OPERATION = ""
 IMOU_OPEN_MOVE_DURATION_MS = 1000
+IMOU_PTZ_ALIAS_TO_OPERATION = {
+    "up": "0",
+    "down": "1",
+    "left": "2",
+    "right": "3",
+    "zoom_in": "4",
+    "zoom_out": "5",
+    "stop": "8",
+}
 EVENT_BRIDGE_TEST_MODE = False
 ONVIF_SIMULATE_FAIL = False
 
@@ -98,17 +109,21 @@ STATE_TOPICS = {
     "ptz_mode": "shed/state/ptz_mode",
     "ocr_enabled": "shed/state/ocr_enabled",
     "last_view_utc": "shed/state/last_view_utc",
+    "ocr_enabled_meta": "shed/state/ocr_enabled_meta",
+    "ocr_countdown_display": "shed/state/ocr_countdown_display",
     "door": "shed/state/door",
 }
 
 COMMAND_TOPICS = {
     "shed/cmd/gate_open",
     "shed/cmd/gate_closed",
+    "shed/cmd/gate_toggle",
     "shed/cmd/ptz_panorama",
     "shed/cmd/ptz_gate",
     "shed/cmd/ptz_mode",
     "shed/cmd/ptz_operation",
     "shed/cmd/view_heartbeat",
+    "shed/cmd/ocr_enabled",
     "shed/cmd/door",
 }
 
@@ -499,68 +514,115 @@ def publish_discovery() -> None:
             "unique_id": "shed_vehicle_count",
             "device": device,
         },
-        "homeassistant/binary_sensor/shed_gate_closed/config": {
-            "name": "Shed Gate Closed",
-            "state_topic": STATE_TOPICS["gate_closed"],
-            "payload_on": "1",
-            "payload_off": "0",
-            "unique_id": "shed_gate_closed",
+
+        "homeassistant/button/shed_ptz_up/config": {
+            "name": "PTZ Move Up",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "0",
+            "unique_id": "shed_ptz_up",
+            "icon": "mdi:arrow-up-bold",
             "device": device,
         },
-        "homeassistant/button/shed_gate_open/config": {
-            "name": "Shed Gate Open",
-            "command_topic": "shed/cmd/gate_open",
-            "unique_id": "shed_gate_open",
+        "homeassistant/button/shed_ptz_down/config": {
+            "name": "PTZ Move Down",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "1",
+            "unique_id": "shed_ptz_down",
+            "icon": "mdi:arrow-down-bold",
             "device": device,
         },
-        "homeassistant/button/shed_gate_closed/config": {
-            "name": "Shed Gate Closed",
-            "command_topic": "shed/cmd/gate_closed",
-            "unique_id": "shed_gate_closed",
+        "homeassistant/button/shed_ptz_left/config": {
+            "name": "PTZ Move Left",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "2",
+            "unique_id": "shed_ptz_left",
+            "icon": "mdi:arrow-left-bold",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_panorama/config": {
-            "name": "PTZ Panorama",
-            "command_topic": "shed/cmd/ptz_panorama",
-            "unique_id": "shed_ptz_panorama",
+        "homeassistant/button/shed_ptz_right/config": {
+            "name": "PTZ Move Right",
+            "command_topic": "shed/cmd/ptz_operation",
+            "payload_press": "3",
+            "unique_id": "shed_ptz_right",
+            "icon": "mdi:arrow-right-bold",
             "device": device,
         },
-        "homeassistant/button/shed_ptz_gate/config": {
-            "name": "PTZ Gate",
-            "command_topic": "shed/cmd/ptz_gate",
-            "unique_id": "shed_ptz_gate",
-            "device": device,
-        },
-        "homeassistant/switch/shed_ptz_mode/config": {
-            "name": "PTZ Camera Mode",
-            "command_topic": "shed/cmd/ptz_mode",
-            "state_topic": STATE_TOPICS["ptz_mode"],
-            "payload_on": "panorama",
-            "payload_off": "gate",
-            "state_on": "panorama",
-            "state_off": "gate",
-            "unique_id": "shed_ptz_mode_switch",
-            "icon": "mdi:axis-arrow",
-            "device": device,
-        },
-        "homeassistant/sensor/shed_ptz_mode/config": {
-            "name": "PTZ Mode",
-            "state_topic": STATE_TOPICS["ptz_mode"],
-            "unique_id": "shed_ptz_mode",
-            "device": device,
-        },
-        "homeassistant/binary_sensor/shed_ocr_enabled/config": {
+
+
+        "homeassistant/switch/shed_ocr_enabled/config": {
             "name": "OCR Enabled",
             "state_topic": STATE_TOPICS["ocr_enabled"],
+            "command_topic": "shed/cmd/ocr_enabled",
             "payload_on": "1",
             "payload_off": "0",
+            "state_on": "1",
+            "state_off": "0",
+            "json_attributes_topic": STATE_TOPICS["ocr_enabled_meta"],
             "unique_id": "shed_ocr_enabled",
+            "icon": "mdi:text-recognition",
+            "device": device,
+        },
+        "homeassistant/switch/shed_gate/config": {
+            "name": "Cổng",
+            "state_topic": STATE_TOPICS["gate_closed"],
+            "command_topic": "shed/cmd/gate_toggle",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "state_on": "0",
+            "state_off": "1",
+            "unique_id": "shed_gate",
+            "icon": "mdi:gate",
+            "device": device,
+        },
+        "homeassistant/sensor/shed_ocr_countdown_display/config": {
+            "name": "OCR Countdown Display",
+            "state_topic": STATE_TOPICS["ocr_countdown_display"],
+            "unique_id": "shed_ocr_countdown_display",
+            "icon": "mdi:timer-outline",
             "device": device,
         },
     }
 
     for topic, payload in discovery_payloads.items():
         mqtt_publish(topic, json.dumps(payload, ensure_ascii=False), retain=True)
+
+    # Remove deprecated discovery entities from Home Assistant.
+    for legacy_topic in (
+        "homeassistant/button/shed_ptz_panorama/config",
+        "homeassistant/button/shed_ptz_gate/config",
+        "homeassistant/binary_sensor/shed_gate_closed/config",
+        "homeassistant/button/shed_gate_open/config",
+        "homeassistant/button/shed_gate_closed/config",
+        "homeassistant/switch/shed_ptz_mode/config",
+        "homeassistant/sensor/shed_ptz_mode/config",
+        "homeassistant/binary_sensor/shed_ocr_enabled/config",
+        "homeassistant/sensor/shed_ocr_enabled/config",
+        "homeassistant/switch/shed_ocr_control/config",
+        "homeassistant/sensor/shed_ocr_control/config",
+        "homeassistant/sensor/shed_ocr_countdown/config",
+        "homeassistant/sensor/shed_ptz_countdown_seconds/config",
+        "homeassistant/button/shed_ptz_stop/config",
+    ):
+        mqtt_publish(legacy_topic, "", retain=True)
+
+
+def get_ocr_countdown_seconds(state: dict | None = None) -> int:
+    state = state or get_ptz_state()
+    if state.get("ocr_enabled", 1) == 1:
+        return 0
+
+    last_view = state.get("last_view_utc")
+    if not last_view:
+        return PTZ_AUTO_RETURN_SECONDS
+
+    try:
+        last_dt = datetime.fromisoformat(last_view)
+    except ValueError:
+        return PTZ_AUTO_RETURN_SECONDS
+
+    elapsed = max(0.0, (datetime.utcnow() - last_dt).total_seconds())
+    remaining = PTZ_AUTO_RETURN_SECONDS - int(elapsed)
+    return max(0, remaining)
 
 
 def publish_state() -> None:
@@ -574,6 +636,25 @@ def publish_state() -> None:
     mqtt_publish(STATE_TOPICS["ptz_mode"], ptz_state["mode"])
     mqtt_publish(STATE_TOPICS["ocr_enabled"], str(ptz_state["ocr_enabled"]))
     mqtt_publish(STATE_TOPICS["last_view_utc"], ptz_state.get("last_view_utc") or "")
+    countdown_seconds = get_ocr_countdown_seconds(ptz_state)
+    countdown_text = (
+        "" if ptz_state["ocr_enabled"] == 1
+        else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s"
+    )
+    mqtt_publish(
+        STATE_TOPICS["ocr_enabled_meta"],
+        json.dumps(
+            {
+                "countdown_minutes": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds // 60,
+                "countdown_seconds": "" if ptz_state["ocr_enabled"] == 1 else countdown_seconds,
+                "countdown_text": countdown_text,
+            }
+        ),
+    )
+    mqtt_publish(
+        STATE_TOPICS["ocr_countdown_display"],
+        countdown_text if ptz_state["ocr_enabled"] == 0 and countdown_text else "",
+    )
     
     with door_state_lock:
         current_door_state = door_state
@@ -948,19 +1029,22 @@ def auto_return_loop() -> None:
     while True:
         try:
             state = get_ptz_state()
+            countdown_seconds = get_ocr_countdown_seconds(state)
+            mqtt_publish(
+                STATE_TOPICS["ocr_enabled_meta"],
+                json.dumps(
+                    {
+                        "countdown_minutes": "" if state["ocr_enabled"] == 1 else countdown_seconds // 60,
+                        "countdown_seconds": "" if state["ocr_enabled"] == 1 else countdown_seconds,
+                        "countdown_text": "" if state["ocr_enabled"] == 1 else f"{max(0, countdown_seconds // 60)}p {max(0, countdown_seconds % 60)}s",
+                    }
+                ),
+            )
             if state["mode"] == "panorama":
-                last_view = state.get("last_view_utc")
-                if last_view:
-                    try:
-                        last_dt = datetime.fromisoformat(last_view)
-                        idle_seconds = (datetime.utcnow() - last_dt).total_seconds()
-                    except ValueError:
-                        idle_seconds = PTZ_AUTO_RETURN_SECONDS
-                else:
-                    idle_seconds = PTZ_AUTO_RETURN_SECONDS
-
+                idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ocr_countdown_seconds(state)
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
-                    if ptz_goto_preset(ONVIF_PRESET_GATE):
+                    moved = ptz_goto_preset(ONVIF_PRESET_GATE)
+                    if moved:
                         prev_mode = state["mode"]
                         set_ptz_state("gate", 1, "auto", None)
                         insert_ptz_event("auto_return", "no_heartbeat_5m", prev_mode, "gate")
@@ -973,10 +1057,16 @@ def auto_return_loop() -> None:
                             "auto",
                             "auto_return_no_viewers",
                         )
+                    elif state["ocr_enabled"] == 0:
+                        set_ptz_state(state["mode"], 1, "auto", None)
+                        insert_ptz_event("auto_enable_ocr", "motion_timeout_5m", state["mode"], state["mode"])
+            elif state["ocr_enabled"] == 0 and countdown_seconds <= 0:
+                set_ptz_state(state["mode"], 1, "auto", None)
+                insert_ptz_event("auto_enable_ocr", "motion_timeout_5m", state["mode"], state["mode"])
         except Exception as exc:
             logger.warning("Auto return loop error: %s", exc)
         finally:
-            threading.Event().wait(10)
+            threading.Event().wait(1)
 
 
 def get_counters() -> tuple[int, int]:
@@ -1483,6 +1573,36 @@ def handle_plate_workflow(payload: dict, event_id: int) -> None:
         )
 
 
+def is_motion_event(payload: dict) -> bool:
+    event_type = str(payload.get("type") or "").strip().lower()
+    if event_type != "new":
+        return False
+
+    label = normalize_object_label(payload.get("label"))
+    if label in OCR_MOTION_TRIGGER_LABELS:
+        return True
+
+    after = payload.get("after") or {}
+    if isinstance(after, dict):
+        after_label = normalize_object_label(after.get("label"))
+        if after_label in OCR_MOTION_TRIGGER_LABELS:
+            return True
+    return False
+
+
+def handle_ocr_motion_trigger(payload: dict) -> None:
+    if not is_motion_event(payload):
+        return
+
+    current = get_ptz_state()
+    now = utc_now()
+    if current.get("ocr_enabled", 1) == 1:
+        set_ptz_state(current["mode"], 0, "motion", now)
+        insert_ptz_event("auto_disable_ocr", "motion_detected", current["mode"], current["mode"])
+    else:
+        update_ptz_last_view("motion")
+
+
 def maybe_notify_telegram(payload: dict) -> None:
     event_type = payload.get("type")
     if event_type not in ALLOWED_EVENT_TYPES:
@@ -1957,20 +2077,23 @@ def handle_counting(payload: dict) -> None:
 
     if direction == "out" and not track["counted_out"]:
         if label == "person":
-            people_count = max(0, people_count - 1)
-            applied_left = apply_left_exit_decrement()
-            note = "left_side_exit_after_vehicle" if applied_left else "person_out"
-            log_counter_event(label, "out", -1, people_count, track_key, source, note)
-            person_session_id = close_person_session(track_key)
-            person_identity = get_person_identity_for_session(person_session_id)
-            insert_driver_attribution(
-                "out",
-                person_identity,
-                "unknown_vehicle",
-                None,
-                person_session_id,
-                {"reason": "person_out_only"},
-            )
+            if COUNT_PERSON_ONLY_IN:
+                log_counter_event(label, "out", 0, people_count, track_key, source, "person_out_ignored")
+            else:
+                people_count = max(0, people_count - 1)
+                applied_left = apply_left_exit_decrement()
+                note = "left_side_exit_after_vehicle" if applied_left else "person_out"
+                log_counter_event(label, "out", -1, people_count, track_key, source, note)
+                person_session_id = close_person_session(track_key)
+                person_identity = get_person_identity_for_session(person_session_id)
+                insert_driver_attribution(
+                    "out",
+                    person_identity,
+                    "unknown_vehicle",
+                    None,
+                    person_session_id,
+                    {"reason": "person_out_only"},
+                )
         else:
             vehicle_count = max(0, vehicle_count - 1)
             log_counter_event(label, "out", -1, vehicle_count, track_key, source, "vehicle_out")
@@ -2109,6 +2232,15 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
     if topic == "shed/cmd/gate_closed":
         set_gate_state(1, "ha")
         return
+    if topic == "shed/cmd/gate_toggle":
+        normalized = payload.strip().upper()
+        if normalized == "ON":
+            set_gate_state(0, "ha")  # ON = cổng MỞ = gate_closed=0
+        elif normalized == "OFF":
+            set_gate_state(1, "ha")  # OFF = cổng ĐÓNG = gate_closed=1
+        else:
+            logger.warning("Unknown gate_toggle payload: %s", payload)
+        return
     if topic == "shed/cmd/door":
         control_door(payload)
         return
@@ -2158,6 +2290,7 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         else:
             operation = normalized
 
+        operation = IMOU_PTZ_ALIAS_TO_OPERATION.get(operation.lower(), operation)
         if not operation:
             logger.warning("Empty ptz_operation payload")
             return
@@ -2168,6 +2301,19 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
             insert_ptz_event(f"imou_op_{operation}", "manual", prev_mode, "panorama")
         else:
             insert_ptz_event(f"imou_op_{operation}_failed", "manual", prev_mode, prev_mode)
+        return
+    if topic == "shed/cmd/ocr_enabled":
+        normalized = payload.strip().lower()
+        if normalized in {"1", "on", "true"}:
+            current = get_ptz_state()
+            set_ptz_state(current["mode"], 1, "ha", current.get("last_view_utc"))
+            insert_ptz_event("set_ocr_enabled", "manual", current["mode"], current["mode"])
+        elif normalized in {"0", "off", "false"}:
+            current = get_ptz_state()
+            set_ptz_state(current["mode"], 0, "ha", utc_now())
+            insert_ptz_event("set_ocr_disabled", "manual", current["mode"], current["mode"])
+        else:
+            logger.warning("Unknown OCR enabled payload: %s", payload)
         return
     if topic == "shed/cmd/view_heartbeat":
         update_ptz_last_view("ha")
@@ -2190,6 +2336,7 @@ def on_mqtt_message(client, userdata, msg):
         return
 
     event_id = insert_event(payload)
+    handle_ocr_motion_trigger(payload)
     handle_plate_workflow(payload, event_id)
     handle_counting(payload)
     maybe_notify_telegram(payload)

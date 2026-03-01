@@ -23,12 +23,14 @@ from core.config import (
     CAMERA_SHIFT_ALERT_CONSECUTIVE,
     PROCESS_WIDTH, STREAM_WIDTH, STREAM_FPS, STREAM_JPEG_QUALITY,
     GENERAL_DETECT_IMGSZ, GENERAL_DETECT_CONF, PLATE_DETECT_EVERY_N_FRAMES,
+    TRIPWIRE_BUFFER_FRAMES, TRIPWIRE_COOLDOWN_SECS,
 )
 from core.database import DatabaseManager
 from core.door_controller import DoorController
 from core.mqtt_manager import MQTTManager
 from core.mjpeg_streamer import MJPEGStreamer
 from core.camera_orientation_monitor import CameraOrientationMonitor
+from core.tripwire import TripwireTracker
 
 # --- Services ---
 from services.telegram_service import notify_telegram, start_telegram_threads
@@ -183,7 +185,9 @@ last_frame_time = time.time()
 last_person_seen_time = time.time()
 notification_sent = False
 signal_loss_alerted = False
-tracked_ids = {}
+
+# --- Tripwire tracker (thay thế tracked_ids inline) ---
+_tripwire_tracker: TripwireTracker | None = None  # khởi tạo lazy sau khi có frame đầu tiên
 
 # Màu hiển thị vùng nhận diện theo yêu cầu vận hành
 PERSON_BOX_COLOR = (0, 255, 255)  # vàng
@@ -257,6 +261,19 @@ while True:
 
     save_active_learning = False
 
+    # Khởi tạo TripwireTracker lần đầu (cần biết line_y_fn runtime)
+    global _tripwire_tracker
+    if _tripwire_tracker is None:
+        _line_y_cache = line_y  # capture giá trị hiện tại; fn gọi lại mỗi frame
+        _tripwire_tracker = TripwireTracker(
+            line_y_fn=lambda: resolve_line_y(frame.shape[0]),
+            buffer_frames=TRIPWIRE_BUFFER_FRAMES,
+            cooldown_secs=TRIPWIRE_COOLDOWN_SECS,
+        )
+        print(f"✅ TripwireTracker khởi tạo: buffer={TRIPWIRE_BUFFER_FRAMES} frames, cooldown={TRIPWIRE_COOLDOWN_SECS}s")
+
+    active_ids: set[int] = set()
+
     for r in results:
         for bbox in r.boxes:
             x1, y1, x2, y2 = map(int, bbox.xyxy[0])
@@ -266,40 +283,33 @@ while True:
             is_person = cls in PERSON_CLASS_IDS
             is_vehicle = cls in VEHICLE_CLASS_IDS
 
-            crossed_red_line = False
-            if obj_id is not None and obj_id in tracked_ids:
-                prev_y = tracked_ids[obj_id]
-
-                if prev_y < line_y and center_y >= line_y:
-                    event_msg = ""
-                    crossed_red_line = True
-                    if is_vehicle:
-                        truck_count += 1
-                        event_msg = f"Xe {obj_id} đi vào kho."
-                    elif is_person:
-                        person_count += 1
-                        event_msg = f"Người {obj_id} đi vào kho."
-
-                    if event_msg:
-                        db.log_event("IN", event_msg, truck_count, person_count)
-                        notify_telegram(event_msg)
-
-                elif prev_y >= line_y and center_y < line_y:
-                    event_msg = ""
-                    crossed_red_line = True
-                    if is_vehicle:
-                        truck_count = max(0, truck_count - 1)
-                        person_count = max(0, person_count - 1)
-                        event_msg = f"Xe {obj_id} đi ra. Tự động trừ 1 người."
-                    elif is_person:
-                        event_msg = f"Người {obj_id} đi ra (không tính giảm, chỉ tính lúc đi vào qua vạch đỏ)."
-
-                    if event_msg:
-                        db.log_event("OUT", event_msg, truck_count, person_count)
-                        notify_telegram(event_msg)
-
             if obj_id is not None:
-                tracked_ids[obj_id] = center_y
+                active_ids.add(obj_id)
+
+            crossed_red_line = False
+            if obj_id is not None and (is_person or is_vehicle):
+                direction = _tripwire_tracker.update(obj_id, center_y)
+                if direction is not None:
+                    crossed_red_line = True
+                    event_msg = ""
+                    if direction == "IN":
+                        if is_vehicle:
+                            truck_count += 1
+                            event_msg = f"🚛 Xe #{obj_id} đi VÀO (IN). Tổng xe: {truck_count}"
+                        elif is_person:
+                            person_count += 1
+                            event_msg = f"🚶 Người #{obj_id} đi VÀO (IN). Tổng người: {person_count}"
+                    elif direction == "OUT":
+                        if is_vehicle:
+                            truck_count = max(0, truck_count - 1)
+                            event_msg = f"🚛 Xe #{obj_id} đi RA (OUT). Tổng xe: {truck_count}"
+                        elif is_person:
+                            person_count = max(0, person_count - 1)
+                            event_msg = f"🚶 Người #{obj_id} đi RA (OUT). Tổng người: {person_count}"
+
+                    if event_msg:
+                        db.log_event(direction, event_msg, truck_count, person_count)
+                        notify_telegram(event_msg)
 
             if is_person:
                 last_person_seen_time = time.time()
@@ -322,6 +332,10 @@ while True:
                     box_color,
                     2,
                 )
+
+    # Xóa tracking của object đã biến mất
+    if _tripwire_tracker is not None:
+        _tripwire_tracker.cleanup_stale(active_ids)
 
     # 2. Nhận diện khuôn mặt (mỗi 2 giây)
     if FACE_RECOGNITION_AVAILABLE and int(time.time()) % 2 == 0:

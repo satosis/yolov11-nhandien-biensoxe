@@ -159,14 +159,77 @@ views:
               action: url
               url_path: http://127.0.0.1:5000/review
 
-      - type: picture-entity
-        title: "AI Camera (Nhận diện & Vạch đỏ gốc)"
-        entity: camera.10_115_215_64  # User's camera entity they just added
+      # ================================================
+      # Camera card với vạch đỏ đã “in” vào stream + zone mỏng hiển thị trực tiếp
+      # ================================================
+      - type: picture-elements
+        title: "Camera Cửa Cuốn (stream có vạch đỏ)"
+        camera_image: camera.shed_ai_overlay
         camera_view: live
+        elements:
+          # --- Zone strip mỏng tại vạch (59%–65% chiều cao) ---
+          - type: custom:html-template-card  # fallback: dùng custom-ui element nếu cần
+            ignore_line_breaks: true
+            content: ""
+            style:
+              position: absolute
+              left: "0%"
+              top: "59%"
+              width: "100%"
+              height: "6%"
+              background: "rgba(255, 100, 0, 0.18)"
+              border-top: "2px solid rgba(255,80,0,0.7)"
+              border-bottom: "2px solid rgba(255,80,0,0.7)"
+              pointer-events: none
+              z-index: "10"
+
+          # --- Label “Vạch đỏ” tại vị trí vạch ---
+          - type: state-label
+            entity: sensor.shed_people_count
+            prefix: "🚶 "
+            suffix: " người"
+            style:
+              position: absolute
+              left: "2%"
+              top: "53%"
+              color: white
+              background: rgba(0,0,0,0.55)
+              padding: "2px 8px"
+              border-radius: "4px"
+              font-size: "13px"
+              font-weight: bold
+              pointer-events: none
+
+          - type: state-label
+            entity: sensor.shed_vehicle_count
+            prefix: "🚛 "
+            suffix: " xe"
+            style:
+              position: absolute
+              left: "2%"
+              top: "67%"
+              color: white
+              background: rgba(0,0,0,0.55)
+              padding: "2px 8px"
+              border-radius: "4px"
+              font-size: "13px"
+              font-weight: bold
+              pointer-events: none
+
+          # --- Nãn label vào/ra góc trên phải ---
+          - type: state-icon
+            entity: switch.shed_gate
+            style:
+              position: absolute
+              right: "2%"
+              top: "4%"
+              color: "var(--state-switch-active-color)"
 
       - type: markdown
         title: Lưu ý camera
         content: |
-          - Vạch đỏ + zone mỏng được vẽ trực tiếp trên Home Assistant bằng card **picture-elements**.
-          - Chỉnh vị trí bằng `top` (hiện là `62%`) để khớp đúng ngang cửa cuốn.
-          - Chỉnh độ dày zone bằng `height` (hiện là `30px`).
+          - **Vạch đỏ** đã “in” thẳng vào stream (go2rtc `drawbox`) — ai xem cũng thấy, kể cả khi ghi lại.
+          - **Zone mỏng cam** (hiển thị trên HA) khớp zone `door_line` của Frigate (59%–65%).
+          - Chỉnh `top`/`height` ở card trên nếu vạch chưa khớp đúng vị trí cửa cuốn.
+          - Stream URL có vạch đỏ: `rtsp://&lt;frigate_ip&gt;:8554/imou_2k_overlay`
+

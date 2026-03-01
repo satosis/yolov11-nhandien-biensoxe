@@ -1,7 +1,12 @@
 go2rtc:
   streams:
+    # Stream gốc (cho detect + record, không có filter)
+    imou_2k:
+      - "rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0"
+    # Stream đã "in" vạch đỏ (dùng cho live view trên HA/Frigate UI)
     imou_2k_overlay:
-      - "ffmpeg:rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0#video=h264#hardware#drawbox=x=0:y=400:w=iw:h=4:color=red@0.9:t=fill"
+      # drawbox theo % chiều cao: y=ih*0.62, dày 6px, màu đỏ 85% đục
+      - "ffmpeg:imou_2k#video=h264#hardware#drawbox=x=0:y=ih*0.62:w=iw:h=6:color=red@0.85:t=fill"
 
 mqtt:
   host: mosquitto
@@ -17,11 +22,15 @@ cameras:
   imou_2k:
     ffmpeg:
       inputs:
-        # Main stream for recording + detection (ưu tiên độ chính xác nhận diện người)
-        - path: rtsp://admin:L2D47B99@10.115.215.241:554/cam/realmonitor?channel=1&subtype=0
+        # Input 1: stream gốc cho detect + record (không có drawbox để AI không bị ảnh hưởng)
+        - path: rtsp://127.0.0.1:8554/imou_2k
           roles:
             - record
             - detect
+        # Input 2: stream đã "in" vạch đỏ - chỉ dùng cho live view
+        - path: rtsp://127.0.0.1:8554/imou_2k_overlay
+          roles:
+            - live
     detect:
       width: 1280
       height: 720
@@ -51,8 +60,29 @@ cameras:
       contour_area: 100
       improve_contrast: true
     zones:
-      gate:
-        coordinates: []  # TODO: fill after calibrating layout
+      # Zone mỏng ~60px tại vạch đỏ (y=0.59–0.65 chiều cao 720px ≈ y424–y468)
+      # Frigate dùng tọa độ tỉ lệ 0.0–1.0: x,y theo cặp clockwise
+      door_line:
+        coordinates: 0,0.59,1,0.59,1,0.65,0,0.65
+        # Khi object vào zone này = đang tại vạch đỏ → fire event
+        objects:
+          - person
+          - car
+          - truck
+      # Phía trong kho (bên dưới vạch)
+      inside:
+        coordinates: 0,0.65,1,0.65,1,1,0,1
+        objects:
+          - person
+          - car
+          - truck
+      # Phía ngoài (bên trên vạch, hướng ra cổng)
+      outside:
+        coordinates: 0,0,1,0,1,0.59,0,0.59
+        objects:
+          - person
+          - car
+          - truck
 
 # Record only on motion/events (no 24/7 recording)
 # Adjust zones to limit detection/recording to the gate area.

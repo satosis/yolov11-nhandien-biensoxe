@@ -53,10 +53,16 @@ PTZ_AUTO_RETURN_SECONDS = 300
 COUNT_PERSON_ONLY_IN = True
 OCR_MOTION_TRIGGER_LABELS = {"person", "car", "truck", "motorcycle", "bicycle"}
 
-ONVIF_HOST = ""
+import os
+from urllib.parse import urlparse
+
+RTSP_URL = os.getenv("RTSP_URL", "")
+_parsed_rtsp = urlparse(RTSP_URL)
+
+ONVIF_HOST = os.getenv("CAMERA_IP") or _parsed_rtsp.hostname or ""
 ONVIF_PORT = 80
-ONVIF_USER = ""
-ONVIF_PASS = ""
+ONVIF_USER = _parsed_rtsp.username or ""
+ONVIF_PASS = _parsed_rtsp.password or ""
 ONVIF_PROFILE_TOKEN = ""
 ONVIF_PRESET_GATE = "gate"
 ONVIF_PRESET_PANORAMA = "panorama"
@@ -1040,10 +1046,13 @@ def auto_return_loop() -> None:
                     }
                 ),
             )
-            if state["mode"] == "panorama":
-                idle_seconds = PTZ_AUTO_RETURN_SECONDS - get_ocr_countdown_seconds(state)
+            if state["mode"] != "gate":
+                idle_seconds = PTZ_AUTO_RETURN_SECONDS - countdown_seconds
                 if idle_seconds >= PTZ_AUTO_RETURN_SECONDS:
                     moved = ptz_goto_preset(ONVIF_PRESET_GATE)
+                    if not moved and IMOU_OPEN_GATE_OPERATION:
+                        moved = imou_open_control_move_ptz(IMOU_OPEN_GATE_OPERATION, IMOU_OPEN_MOVE_DURATION_MS)
+                    
                     if moved:
                         prev_mode = state["mode"]
                         set_ptz_state("gate", 1, "auto", None)
@@ -2306,8 +2315,11 @@ def handle_mqtt_command(topic: str, payload: str) -> None:
         normalized = payload.strip().lower()
         if normalized in {"1", "on", "true"}:
             current = get_ptz_state()
-            set_ptz_state(current["mode"], 1, "ha", current.get("last_view_utc"))
-            insert_ptz_event("set_ocr_enabled", "manual", current["mode"], current["mode"])
+            if current["mode"] != "gate":
+                handle_mqtt_command("shed/cmd/ptz_gate", "1")
+            else:
+                set_ptz_state("gate", 1, "ha", current.get("last_view_utc"))
+                insert_ptz_event("set_ocr_enabled", "manual", "gate", "gate")
         elif normalized in {"0", "off", "false"}:
             current = get_ptz_state()
             set_ptz_state(current["mode"], 0, "ha", utc_now())

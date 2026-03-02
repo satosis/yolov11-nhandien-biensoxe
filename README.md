@@ -29,7 +29,33 @@ CHAT_ID_IMPORTANT=
 CHAT_ID_REGULAR=
 RTSP_URL=
 OCR_SOURCE=
+LINE_Y_RATIO=0.62
+LINE_Y_PIXELS=
 ```
+
+
+## In “vạch đỏ” trực tiếp vào RTSP (để mọi app đều thấy)
+Nếu bạn muốn Home Assistant/Frigate/NVR nhìn thấy vạch đỏ ngay trên stream gốc, có thể restream bằng FFmpeg:
+
+```bash
+scripts/restream_tripwire.sh \
+  "rtsp://USER:PASS@IP:554/..." \
+  "rtsp://0.0.0.0:8554/cam_doorline" \
+  0.62 6
+```
+
+Sau đó dùng stream mới trong HA/Frigate/NVR:
+
+```
+rtsp://<may_chay_ffmpeg>:8554/cam_doorline
+```
+
+- `0.62` = vị trí vạch theo **% chiều cao khung hình** (62%).
+- `6` = độ dày vạch (px).
+
+> Lưu ý: trong logic AI của dự án, bạn có thể đồng bộ vị trí vạch bằng `.env`:
+> - `LINE_Y_RATIO=0.62` (khuyên dùng, co giãn theo độ phân giải)
+> - hoặc `LINE_Y_PIXELS=300` (override tuyệt đối theo pixel).
 
 ## Cấu hình Camera RTSP
 Sửa trong `.env`:

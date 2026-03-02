@@ -42,13 +42,17 @@ camera:
 shell_command:
   frigate_fetch_annotated_snapshot: >-
     mkdir -p "/config/www/frigate_snapshots/{{ camera }}" &&
-    (curl -fsSL
+    out="/config/www/frigate_snapshots/{{ camera }}/{{ filename }}" &&
+    tmp="${out}.tmp" &&
+    rm -f "$tmp" &&
+    (curl -fsSL --connect-timeout 5 --max-time 20
       -H "Authorization: Bearer {{ token }}"
       "{{ ha_base_url }}/api/frigate/notifications/{{ event_id }}/snapshot.jpg"
-      -o "/config/www/frigate_snapshots/{{ camera }}/{{ filename }}"
-    || curl -fsSL
+      -o "$tmp"
+    || curl -fsSL --connect-timeout 5 --max-time 20
       "{{ frigate_base_url }}/api/events/{{ event_id }}/snapshot.jpg?bbox=1&timestamp=1"
-      -o "/config/www/frigate_snapshots/{{ camera }}/{{ filename }}")
+      -o "$tmp") &&
+    test -s "$tmp" && mv "$tmp" "$out"
 
 lovelace:
   mode: yaml

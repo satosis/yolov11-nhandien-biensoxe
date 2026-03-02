@@ -93,11 +93,11 @@
     - condition: template
       value_template: "{{ trigger.payload_json.type == 'new' }}"
     - condition: template
-      value_template: "{{ trigger.payload_json.after is not none }}"
+      value_template: "{{ trigger.payload_json.after is defined and trigger.payload_json.after is not none }}"
     - condition: template
       value_template: "{{ trigger.payload_json.after.label in ['person', 'car', 'motorcycle'] }}"
     - condition: template
-      value_template: "{{ trigger.payload_json.after.false_positive != true }}"
+      value_template: "{{ not (trigger.payload_json.after.false_positive | default(false)) }}"
   action:
     - variables:
         event_id: "{{ trigger.payload_json.after.id }}"
@@ -105,12 +105,12 @@
         camera: "{{ trigger.payload_json.after.camera }}"
         ts: "{{ now().strftime('%Y%m%d_%H%M%S') }}"
         filename: "{{ ts }}_{{ label }}_{{ event_id }}.jpg"
-        local_file: "/config/www/frigate_snapshots/{{ camera }}/{{ filename }}"
         local_url: "/local/frigate_snapshots/{{ camera }}/{{ filename }}"
         ha_base_url: !secret ha_base_url
         frigate_base_url: !secret frigate_host
         token: !secret ha_long_lived_access_token
-    - delay: "00:00:02"
+    - delay:
+        seconds: 2
     - service: shell_command.frigate_fetch_annotated_snapshot
       data:
         camera: "{{ camera }}"
@@ -121,7 +121,7 @@
         token: "{{ token }}"
     - service: notify.mobile_app_your_device
       data:
-        title: "Frigate: {{ label|upper }}"
+        title: "Frigate: {{ label | upper }}"
         message: "{{ camera }} phát hiện {{ label }}"
         data:
           image: "{{ local_url }}"

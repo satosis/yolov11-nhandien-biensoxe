@@ -78,3 +78,33 @@ Hệ thống hoạt động trên một bo mạch nhúng **Orange Pi 4 Pro** (ho
 - **Cấu hình**: Chỉnh sửa file `.env` (RTSP URL, Telegram Token...).
 - **Chạy**: `python main.py`.
 - **Giám sát**: Truy cập `http://IP:8000/video_feed`.
+
+### 7. Tiền xử lý biển số và tách ký tự (cải thiện OCR)
+#### 7.1 Xoay biển số để chuẩn hóa góc nhìn
+Trong thực tế, ảnh biển số thường bị nghiêng trái/phải hoặc méo phối cảnh. Nếu đưa trực tiếp vùng crop vào OCR, độ chính xác giảm đáng kể và dễ nhầm lẫn các cặp ký tự tương tự như `1/7`, `2/Z`, `8/B`.
+
+Quy trình xoay biển số được áp dụng:
+1. Xác định 2 đỉnh nằm dưới cùng của biển số là `A(x1, y1)` và `B(x2, y2)`.
+2. Tính góc nghiêng từ chênh lệch tọa độ hai điểm (cạnh đối/cạnh kề của tam giác vuông suy ra từ A-B).
+3. Xoay ảnh theo góc đã tính để cạnh đáy biển số song song trục ngang.
+4. Nếu `A` cao hơn `B` thì dùng góc âm, ngược lại dùng góc dương.
+
+Kết quả là ảnh biển số sau xoay có bố cục ký tự ổn định hơn, giúp bước tìm contour ký tự phía sau hoạt động tốt hơn.
+
+#### 7.2 Tìm vùng ký tự và lọc nhiễu
+Từ ảnh nhị phân của biển số, hệ thống trích xuất các contour và loại bỏ các contour nhiễu (viền biển số, dấu chấm, vạch nhỏ, ký tự giả) dựa trên nhóm điều kiện hình học:
+- Diện tích contour tối thiểu/tối đa.
+- Tỷ lệ rộng/cao của bounding box.
+- Vị trí tương đối theo trục dọc/ngang so với vùng biển số.
+- Mật độ/độ đặc điểm ảnh trong contour.
+
+Các contour thỏa điều kiện sẽ được biểu diễn bằng hình chữ nhật bao quanh ký tự ứng viên.
+
+#### 7.3 Tách ký tự và đưa vào bộ nhận diện
+Sau khi có các bounding box ký tự:
+1. Sắp xếp theo thứ tự đọc (trái → phải, trên → dưới nếu biển 2 dòng).
+2. Cắt từng ký tự từ **ảnh nhị phân** (không cắt từ ảnh gốc màu).
+3. Resize/chuẩn hóa kích thước đầu vào cho mô hình OCR hoặc bộ phân loại ký tự.
+4. Nhận diện ký tự và ghép chuỗi biển số cuối cùng.
+
+Cách làm này giúp pipeline OCR ổn định hơn trong điều kiện ánh sáng yếu, góc chụp lệch và nền nhiễu.

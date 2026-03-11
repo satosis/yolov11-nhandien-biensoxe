@@ -28,7 +28,6 @@ from core.config import (
 from core.database import DatabaseManager
 from core.door_controller import DoorController
 from core.mqtt_manager import MQTTManager
-from core.mjpeg_streamer import MJPEGStreamer
 from core.camera_orientation_monitor import CameraOrientationMonitor
 from core.tripwire import TripwireTracker
 
@@ -38,6 +37,7 @@ from services.face_service import load_faces, check_face, check_plate
 from services.door_service import check_door_state
 from services.system_monitor import get_cpu_temp, system_monitor_loop
 from services.api_server import start_api_server
+from services.camera_manager import CameraManager
 
 # ========== KHỞI TẠO ==========
 db = DatabaseManager(DB_PATH)
@@ -46,7 +46,16 @@ mqtt_manager = MQTTManager(door_controller)
 mqtt_manager.start()
 print("✅ MQTT Manager started")
 
-streamer = MJPEGStreamer(stream_width=STREAM_WIDTH, fps=STREAM_FPS, jpeg_quality=STREAM_JPEG_QUALITY)
+# --- CameraManager (multi-camera) ---
+camera_manager = CameraManager()
+camera_manager.add_camera("main", RTSP_URL, name="Camera Chính")
+for _idx, _env_key in enumerate(["CAMERA_2_URL", "CAMERA_3_URL", "CAMERA_4_URL"], start=2):
+    _url = os.environ.get(_env_key, "").strip()
+    if _url:
+        camera_manager.add_camera(f"cam{_idx}", _url, name=f"Camera {_idx}")
+
+# Backward compat: streamer chính vẫn là camera "main"
+streamer = camera_manager.get_streamer("main")
 
 # --- Trạng thái toàn cục ---
 truck_count = 0
@@ -66,7 +75,7 @@ def get_counts():
 
 # --- Khởi chạy threads ---
 start_telegram_threads(db, load_faces, mqtt_manager, get_cpu_temp, get_counts)
-threading.Thread(target=start_api_server, args=(streamer, get_state, mqtt_manager), daemon=True).start()
+threading.Thread(target=start_api_server, args=(streamer, get_state, mqtt_manager), kwargs={"camera_manager": camera_manager}, daemon=True).start()
 threading.Thread(target=system_monitor_loop, daemon=True).start()
 
 print("🚀 Smart Door System STARTED.")

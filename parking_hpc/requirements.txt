@@ -1,0 +1,33 @@
+# parking_hpc/requirements.txt
+# Install on Orange Pi 4 Pro (RK3399, Ubuntu/Debian arm64)
+#
+# Prerequisites (apt):
+#   sudo apt install python3-opencv ffmpeg libv4l-dev libopenblas-dev
+#
+# Then:
+#   pip install -r parking_hpc/requirements.txt
+
+# Core CV
+opencv-contrib-python-headless>=4.9.0   # headless — no GUI needed on server
+numpy>=1.24
+
+# AI / Detection
+ultralytics>=8.3.0          # YOLOv10 / YOLOv11
+
+# OCR
+paddlepaddle>=2.6.0         # use paddlepaddle-gpu if CUDA available
+paddleocr>=2.7.0
+
+# Face recognition (ONNX backend)
+insightface>=0.7.3
+onnxruntime>=1.18.0         # swap for onnxruntime-opencl on RK3399 Mali GPU
+
+# Web UI
+flask>=3.0.0
+flask-socketio>=5.3.6
+python-socketio[asyncio_client]>=5.11.0
+eventlet>=0.36.0            # async mode for SocketIO
+
+# Config / utils
+python-dotenv>=1.0.0
+requests>=2.31.0

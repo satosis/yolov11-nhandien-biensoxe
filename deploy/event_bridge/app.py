@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 import threading
-import time
+import time     
 import uuid
 from datetime import datetime, timedelta
 
@@ -2065,6 +2065,14 @@ def handle_counting(payload: dict) -> None:
             plate_norm = normalize_plate(extract_plate(payload)) if ocr_enabled else None
             if plate_norm == "":
                 plate_norm = None
+            # Notify agents of new plate detection
+            if plate_norm:
+                import json as _json
+                mqtt_publish(
+                    "agents/trigger/plate_detected",
+                    _json.dumps({"plate": plate_norm, "label": label, "camera": payload.get("camera"), "timestamp": utc_now().isoformat()}),
+                    retain=False,
+                )
             vehicle_session_id = open_vehicle_session(
                 track_key, plate_norm, label, payload.get("camera"), source
             )

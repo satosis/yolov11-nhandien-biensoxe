@@ -111,6 +111,25 @@ services:
     networks:
       - surv-net
 
+  agents:
+    build: ./agents
+    container_name: agents
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - event_bridge
+    env_file:
+      - ./.env
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - DB_PATH=/data/events.db
+    volumes:
+      - ./data/event_bridge:/data:ro
+    networks:
+      - surv-net
+
 networks:
   surv-net:
     driver: bridge

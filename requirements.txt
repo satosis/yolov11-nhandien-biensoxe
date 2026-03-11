@@ -17,3 +17,4 @@ OPi.GPIO
 tinytuya
 onnx==1.17.0
 onnxscript>=0.1.0
+psycopg2-binary>=2.9.0

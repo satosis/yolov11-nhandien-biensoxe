@@ -23,15 +23,14 @@ def load_env_file(path: str, override: bool = False) -> None:
             os.environ[key] = value
 
 
-# Load môi trường (.env trước, rồi runtime .camera.env để override CAMERA_IP nếu có)
+# Load môi trường (.env)
 load_env_file(".env")
-load_env_file(".camera.env", override=True)
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
 # --- Telegram ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_IMPORTANT = os.getenv("TELEGRAM_CHAT_IMPORTANT")
-CHAT_REGULAR = os.getenv("TELEGRAM_CHAT_NONIMPORTANT")
+TOKEN = "6434708723:AAEK3eWhfe7gOc9F2g0w2sokk6TumvYEeAk"
+CHAT_IMPORTANT = "-5273529392"
+CHAT_REGULAR = "-5171619580"
 
 # --- Database ---
 DB_PATH = "./db/door_events.db"
@@ -43,16 +42,16 @@ DOOR_MODEL_PATH = "./models/door_model.pt"
 
 # --- Detection ---
 # Ưu tiên LINE_Y_PIXELS nếu được set; nếu không sẽ dùng LINE_Y_RATIO * chiều cao frame.
-LINE_Y_RATIO = float(os.getenv("LINE_Y_RATIO", "0.62"))
-LINE_Y_PIXELS = int(os.getenv("LINE_Y_PIXELS", "0"))
+LINE_Y_RATIO = 0.62
+LINE_Y_PIXELS = 0
 
 # --- Tripwire tracker ---
 # Số frame liên tiếp cùng phía để xác nhận hướng (giảm noise bbox jitter)
 TRIPWIRE_BUFFER_FRAMES = 3
 # Thời gian chờ (giây) trước khi fire lại cùng object (tránh đếm lặp khi đứng tại vạch)
 TRIPWIRE_COOLDOWN_SECS = 3.0
-CAMERA_IP = os.getenv("CAMERA_IP", "")
-_RTSP_URL_RAW = os.getenv("RTSP_URL", "")
+CAMERA_IP = ""
+_RTSP_URL_RAW = "rtsp://admin:L2D47B99@192.168.1.55:554/cam/realmonitor?channel=1&subtype=0"
 
 
 def resolve_rtsp_url(rtsp_url: str, camera_ip: str) -> str:

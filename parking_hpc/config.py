@@ -7,7 +7,6 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".camera.env"), override=True)
 
 # ── RTSP Sources ──────────────────────────────────────────────────────────────
 # Force TCP transport to avoid UDP packet loss on LAN

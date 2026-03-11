@@ -22,7 +22,6 @@ services:
       - mosquitto
     env_file:
       - ./.env
-      - ./.camera.env
     ports:
       - "5000:5000"
       - "8554:8554"
@@ -45,7 +44,6 @@ services:
       - mosquitto
     env_file:
       - ./.env
-      - ./.camera.env
     network_mode: host
     environment:
       - TZ=Asia/Ho_Chi_Minh
@@ -83,7 +81,6 @@ services:
       - mosquitto
     env_file:
       - ./.env
-      - ./.camera.env
     environment:
       - TZ=Asia/Ho_Chi_Minh
     volumes:
@@ -101,7 +98,6 @@ services:
       - mosquitto
     env_file:
       - ./.env
-      - ./.camera.env
     environment:
       - TZ=Asia/Ho_Chi_Minh
     ports:
@@ -111,25 +107,45 @@ services:
     networks:
       - surv-net
 
-  agents:
-    build: ./agents
-    container_name: agents
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
     restart: unless-stopped
-    depends_on:
-      - mosquitto
-      - event_bridge
-    env_file:
-      - ./.env
     environment:
+      - POSTGRES_DB=${POSTGRES_DB:-camera_ai}
+      - POSTGRES_USER=${POSTGRES_USER:-camera_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - TZ=Asia/Ho_Chi_Minh
-      - MQTT_HOST=mosquitto
-      - MQTT_PORT=1883
-      - DB_PATH=/data/events.db
     volumes:
-      - ./data/event_bridge:/data:ro
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - surv-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-camera_user} -d ${POSTGRES_DB:-camera_ai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer
+    container_name: adminer
+    restart: unless-stopped
+    profiles: ["db_admin"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8888:8080"
     networks:
       - surv-net
 
 networks:
   surv-net:
     driver: bridge
+
+volumes:
+  postgres_data:

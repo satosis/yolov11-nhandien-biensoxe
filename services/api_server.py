@@ -10,9 +10,9 @@ app = FastAPI()
 
 # --- Auth ---
 _sessions: set[str] = set()
-_UI_USER = os.environ.get("CAMERA_UI_USER", "admin")
-_UI_PASS = os.environ.get("CAMERA_UI_PASS", "admin123")
-_SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "./data/snapshots")
+_UI_USER = "admin"
+_UI_PASS = "changeme"
+_SNAPSHOT_DIR = "./data/snapshots"
 
 _UNPROTECTED = {"/login", "/favicon.ico"}
 
@@ -29,7 +29,7 @@ def _auth_redirect(request: Request):
     return None
 
 
-def create_api_server(streamer, get_state_fn, mqtt_manager, camera_manager=None):
+def create_api_server(streamer, get_state_fn, mqtt_manager, camera_manager=None, settings_store=None):
     """Tạo API server với dashboard và endpoints.
 
     Args:
@@ -206,6 +206,71 @@ def create_api_server(streamer, get_state_fn, mqtt_manager, camera_manager=None)
             mqtt_manager.client.publish("shed/cmd/ptz_gate", "1")
         return {"status": "sent"}
 
+    # ── Settings ──────────────────────────────────────────────────────────────
+
+    _PASSWORD_KEYS = set()
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request, saved: str = ""):
+        redir = _auth_redirect(request)
+        if redir:
+            return redir
+
+        store = settings_store
+        current = store.get_all() if store else {}
+
+        flash = '<div class="flash">✅ Đã lưu cài đặt thành công.</div>' if saved == "1" else ""
+        warning = ""
+        if store and not store.available:
+            warning = '<div class="warn">⚠ Không kết nối được PostgreSQL — hiển thị từ biến môi trường, không thể lưu.</div>'
+
+        groups = [
+            ("📸 OCR Camera Configuration", [
+                ("OCR_SOURCE", "OCR Source", "select"),
+            ]),
+        ]
+
+        fields_html = ""
+        for group_name, fields in groups:
+            fields_html += f'<h3 class="group-title">{group_name}</h3>\n'
+            for key, label, ftype in fields:
+                val = current.get(key, "")
+                if ftype == "password":
+                    ph = "••••••••" if val else "(chưa đặt)"
+                    fields_html += f'<label>{label}<input type="password" name="{key}" placeholder="{ph}" autocomplete="new-password"></label>\n'
+                elif ftype == "select":
+                    sel_rtsp = 'selected' if val in ("", "rtsp") else ""
+                    sel_web = 'selected' if val == "webcam" else ""
+                    fields_html += f'<label>{label}<select name="{key}"><option value="rtsp" {sel_rtsp}>rtsp</option><option value="webcam" {sel_web}>webcam</option></select></label>\n'
+                elif ftype == "number":
+                    fields_html += f'<label>{label}<input type="number" step="0.01" min="0" max="1" name="{key}" value="{val}"></label>\n'
+                else:
+                    fields_html += f'<label>{label}<input type="text" name="{key}" value="{val}"></label>\n'
+
+        html = _SETTINGS_HTML.replace("{{FLASH}}", flash).replace("{{WARNING}}", warning).replace("{{FIELDS}}", fields_html)
+        return HTMLResponse(html)
+
+    @app.post("/settings")
+    async def settings_save(request: Request):
+        redir = _auth_redirect(request)
+        if redir:
+            return redir
+
+        form = await request.form()
+        data = {k: v for k, v in form.items() if v}  # skip empty values
+
+        if settings_store:
+            settings_store.set_many(data)
+
+        # Hot-reload UI credentials
+        global _UI_USER, _UI_PASS
+        if "CAMERA_UI_USER" in data:
+            _UI_USER = data["CAMERA_UI_USER"]
+        if "CAMERA_UI_PASS" in data:
+            _UI_PASS = data["CAMERA_UI_PASS"]
+
+        return RedirectResponse(url="/settings?saved=1", status_code=302)
+
     return app
 
 
@@ -305,7 +370,10 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <body>
 <header>
   <h1>🎥 Bãi Giữ Xe — Camera Dashboard</h1>
-  <a href="/logout">Đăng xuất</a>
+  <div style="display:flex;gap:16px;align-items:center">
+    <a href="/settings">⚙ Cài đặt</a>
+    <a href="/logout">Đăng xuất</a>
+  </div>
 </header>
 <div class="grid">
 {{CELLS}}
@@ -356,5 +424,55 @@ function goFullscreen(camId) {
 pollStatus();
 setInterval(pollStatus, 5000);
 </script>
+</body>
+</html>"""
+
+
+_SETTINGS_HTML = """<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cài đặt — Camera</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d0d0d;color:#eee;font-family:sans-serif}
+  header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#111;border-bottom:1px solid #222}
+  header h1{color:#00e676;font-size:1.1rem}
+  header a{color:#aaa;font-size:.85rem;text-decoration:none}
+  header a:hover{color:#fff}
+  .container{max-width:640px;margin:32px auto;padding:0 16px}
+  .flash{background:#1b3a1b;border:1px solid #00e676;color:#00e676;padding:10px 14px;border-radius:6px;margin-bottom:16px}
+  .warn{background:#3a2a00;border:1px solid #f90;color:#f90;padding:10px 14px;border-radius:6px;margin-bottom:16px}
+  .group-title{color:#00e676;font-size:.9rem;margin:24px 0 10px;text-transform:uppercase;letter-spacing:.5px}
+  label{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;font-size:.85rem;color:#aaa}
+  input,select{padding:9px 12px;background:#1e1e1e;border:1px solid #333;border-radius:6px;color:#eee;font-size:.95rem}
+  input:focus,select:focus{outline:none;border-color:#00e676}
+  .actions{margin-top:28px;display:flex;gap:10px}
+  button[type=submit]{padding:11px 28px;background:#00e676;border:none;border-radius:6px;color:#000;font-weight:700;font-size:.95rem;cursor:pointer}
+  button[type=submit]:hover{background:#00c853}
+  .back{padding:11px 20px;background:#262626;border:1px solid #333;border-radius:6px;color:#ccc;font-size:.95rem;text-decoration:none;display:inline-flex;align-items:center}
+  .back:hover{background:#333;color:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙ Cài đặt hệ thống</h1>
+  <div style="display:flex;gap:16px;align-items:center">
+    <a href="/dashboard">📹 Dashboard</a>
+    <a href="/logout">Đăng xuất</a>
+  </div>
+</header>
+<div class="container">
+  {{FLASH}}
+  {{WARNING}}
+  <form method="post" action="/settings">
+    {{FIELDS}}
+    <div class="actions">
+      <button type="submit">💾 Lưu cài đặt</button>
+      <a href="/dashboard" class="back">← Quay lại</a>
+    </div>
+  </form>
+</div>
 </body>
 </html>"""

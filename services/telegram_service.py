@@ -164,17 +164,8 @@ def telegram_polling_loop(db, load_faces_fn, mqtt_manager):
 
                             if str(chat_id_msg) in [CHAT_IMPORTANT, CHAT_REGULAR]:
                                 handle_telegram_command(text, chat_id_msg, user_id, db, load_faces_fn, mqtt_manager)
-                                # Forward non-command messages to agents
-                                if not text.startswith("/"):
-                                    import json as _json
-                                    mqtt_manager.client.publish(
-                                        "agents/trigger/telegram_message",
-                                        _json.dumps({
-                                            "text": text,
-                                            "chat_id": str(chat_id_msg),
-                                            "user_id": str(user_id),
-                                        }),
-                                    )
+                                # Forward non-command messages to agents (REMOVED)
+                                pass
 
             time.sleep(1)
         except Exception as e:

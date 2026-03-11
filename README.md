@@ -65,8 +65,8 @@ Sửa trong `.env`:
 - `RTSP_URL`: Đường dẫn luồng hình ảnh chính từ Camera.
 - `OCR_SOURCE`: Nguồn nhận diện (vd: `rtsp` hoặc `webcam`).
 
-Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến `{CAMERA_IP}`.
-Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ tự dò `CAMERA_IP` theo `CAMERA_MAC` và ghi vào `.camera.env` trước khi khởi động Docker.
+Trong `deploy/frigate/config.yml`, địa chỉ stream dùng biến môi trường.
+Khi chạy `./cmd up`, script `deploy/scripts/resolve_camera_ip.py` sẽ thực hiện dò tìm IP nếu cần.
 
 
 ## Phát hiện camera bị lệch góc (so với ban đầu)
@@ -195,7 +195,7 @@ Hành vi:
 - **Không truy cập được HA từ mạng khác**: chạy `./cmd remote-check` để kiểm tra nhanh `.env` (`HA_INTERNAL_URL`, `HA_EXTERNAL_URL`, `TS_AUTHKEY`) và trạng thái cổng local 8123 trước khi debug tiếp.
 - **Muốn xem lịch sử camera ngay trong HA**: dùng nút "Mở Frigate NVR"/"Mở Frigate Events" trên dashboard, hoặc mở trực tiếp `http://<host>:5000`; HA nên dùng cho điều khiển, NVR dùng cho timeline/record.
 - **Lỗi RTSP**: Kiểm tra đường dẫn, user/pass camera trong `.env`.
-- **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`; `./cmd up` hiện cũng tự fallback lấy user/pass từ `RTSP_URL` và ghi vào `.camera.env` để tránh thiếu biến `{RTSP_USER}`/`{RTSP_PASS}` trong `deploy/frigate/config.yml`.
+- **Frigate báo lỗi đăng nhập camera / container `frigate` thoát code 1**: đảm bảo đã điền `RTSP_USER` và `RTSP_PASS` trong `.env`. Chạy `./cmd up` để kiểm tra lại.
 - **Lỗi MQTT**: Kiểm tra container `mosquitto` hoặc Log.
 - **Vẫn thấy log cũ `/app/app.py ... client = mqtt.Client()`**: image `event_bridge` chưa rebuild theo code mới. Chạy lại `./cmd up` (lệnh này tự `docker compose build event_bridge`, rồi chờ health của Frigate trước khi kết thúc).
 - **Cảnh báo `Snapshot fetch failed ... connection refused` lúc mới `./cmd up`**: thường do Frigate đang khởi động (`health: starting`). Đợi Frigate `healthy` rồi kiểm tra lại log.
@@ -205,7 +205,7 @@ Hành vi:
 - **Python version**: dự án đang chạy tốt với Python 3.10.x (ví dụ `Python 3.10.12`).
 - **Lỗi `IndentationError` trong `core/config.py`**: chạy `python3 -m py_compile core/config.py`; installer sẽ tự thử `git checkout -- core/config.py` và fallback template. Nếu vẫn lỗi, chạy `git pull` rồi thử lại.
 - **Lỗi `Cannot resolve CAMERA_IP from CAMERA_MAC`**: script hiện sẽ tự quét nhiều dải mạng LAN (bao gồm interface nội bộ và fallback), nhưng bạn vẫn nên đặt `CAMERA_IP_SUBNET` đúng dải mạng (vd `10.115.215.0/24`) để dò nhanh/chính xác hơn, rồi chạy lại `./cmd up`.
-- **Lỗi `env file .camera.env not found` khi `./cmd up`**: đã được xử lý trong lệnh `./cmd up` mới (tự tạo `.camera.env` rỗng trước khi chạy Docker). Nếu đang dùng bản cũ, cập nhật mã mới hoặc tự tạo tạm bằng `touch .camera.env`.
+- **Lỗi `docker compose` khi khởi động**: Hãy đảm bảo file `.env` tồn tại và đầy đủ thông tin.
 - **Lỗi `Permission denied` khi cài HACS (`data/homeassistant/custom_components`)**: sửa quyền rồi chạy lại install: `sudo chown -R $USER:$USER data/homeassistant && ./install.sh`.
 - **Lỗi `HACS package is invalid (missing custom_components/hacs)`**: installer đã tự thử fallback `git clone hacs/integration` khi archive không đúng layout; nếu vẫn lỗi, kiểm tra mạng GitHub rồi chạy lại `./install.sh`.
 - **Frigate không xuất hiện trong Add Integration**: chạy lại `./install.sh`, sau đó `docker compose ps` để chắc `homeassistant` đang `Up`, đợi 30-60 giây và refresh trình duyệt HA.

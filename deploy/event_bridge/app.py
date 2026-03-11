@@ -24,9 +24,9 @@ MQTT_PORT = 1883
 MQTT_TOPIC = "frigate/events"
 DB_PATH = "/data/events.db"
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID_IMPORTANT = os.getenv("TELEGRAM_CHAT_IMPORTANT")
-CHAT_ID_NONIMPORTANT = os.getenv("TELEGRAM_CHAT_NONIMPORTANT")
+TELEGRAM_TOKEN = "6434708723:AAEK3eWhfe7gOc9F2g0w2sokk6TumvYEeAk"
+CHAT_ID_IMPORTANT = "-5273529392"
+CHAT_ID_NONIMPORTANT = "-5171619580"
 
 IMPORTANT_LABELS = {"person", "truck"}
 NONIMPORTANT_LABELS = {"car"}
@@ -56,10 +56,10 @@ OCR_MOTION_TRIGGER_LABELS = {"person", "car", "truck", "motorcycle", "bicycle"}
 import os
 from urllib.parse import urlparse
 
-RTSP_URL = os.getenv("RTSP_URL", "")
+RTSP_URL = "rtsp://admin:L2D47B99@192.168.1.55:554/cam/realmonitor?channel=1&subtype=0"
 _parsed_rtsp = urlparse(RTSP_URL)
 
-ONVIF_HOST = os.getenv("CAMERA_IP") or _parsed_rtsp.hostname or ""
+ONVIF_HOST = _parsed_rtsp.hostname or ""
 ONVIF_PORT = 80
 ONVIF_USER = _parsed_rtsp.username or ""
 ONVIF_PASS = _parsed_rtsp.password or ""
@@ -76,9 +76,9 @@ PTZ_STEP_SIZE = 0.12
 PTZ_INVERT_PAN = False
 PTZ_INVERT_TILT = False
 IMOU_OPEN_API_BASE = "https://openapi-sg.easy4ip.com/openapi"
-IMOU_OPEN_APP_ID = os.getenv("IMOU_OPEN_APP_ID", "").strip()
-IMOU_OPEN_APP_SECRET = os.getenv("IMOU_OPEN_APP_SECRET", "").strip()
-IMOU_OPEN_DEVICE_ID = os.getenv("IMOU_OPEN_DEVICE_ID", "").strip()
+IMOU_OPEN_APP_ID = "lc9f9e2d2dcc094a61"
+IMOU_OPEN_APP_SECRET = "8676588d325b496c9e3171ba32744f"
+IMOU_OPEN_DEVICE_ID = "5552ABJPSFFB063"
 IMOU_OPEN_CHANNEL_ID = "0"
 IMOU_OPEN_TIMEOUT = 20.0
 IMOU_OPEN_PANORAMA_OPERATION = ""
@@ -2065,14 +2065,8 @@ def handle_counting(payload: dict) -> None:
             plate_norm = normalize_plate(extract_plate(payload)) if ocr_enabled else None
             if plate_norm == "":
                 plate_norm = None
-            # Notify agents of new plate detection
-            if plate_norm:
-                import json as _json
-                mqtt_publish(
-                    "agents/trigger/plate_detected",
-                    _json.dumps({"plate": plate_norm, "label": label, "camera": payload.get("camera"), "timestamp": utc_now().isoformat()}),
-                    retain=False,
-                )
+            # Notify agents of new plate detection (REMOVED)
+            pass
             vehicle_session_id = open_vehicle_session(
                 track_key, plate_norm, label, payload.get("camera"), source
             )

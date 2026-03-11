@@ -264,9 +264,8 @@ def load_env_file(path: str, override: bool = False) -> None:
             os.environ[key] = value
 
 
-# Load môi trường (.env trước, rồi runtime .camera.env để override CAMERA_IP nếu có)
+# Load môi trường (.env)
 load_env_file(".env")
-load_env_file(".camera.env", override=True)
 logging.getLogger("ultralytics").setLevel(logging.WARNING)
 
 # --- Telegram ---
